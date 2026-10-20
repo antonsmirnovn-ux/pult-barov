@@ -1,0 +1,161 @@
+/**
+ * Пульт баров — API к таблице «заказ пива».
+ * Создайте проект на script.google.com (или Расширения → Apps Script в таблице),
+ * вставьте этот код и разверните как веб-приложение.
+ */
+const KEY = 'bar-X2Ia0sqzqoS4'; // код доступа: его же вводите в приложении
+
+const SHEET_ID = '1CxNqSS83GgoHtCjlSD7lNwgetEDh5qSvUzuoDR4Va0w'; // таблица «заказ пива»
+const SH = { tasks: 'список дел', '13': '13шка', epo: 'ЕпО', contacts: 'нужные контакты' };
+const GREEN = '#00ff00', YELLOW = '#ffff00', WHITE = '#ffffff';
+
+function doGet(e) {
+  return handle_(function () {
+    if ((e.parameter || {}).key !== KEY) throw new Error('bad_key');
+    return readAll_();
+  });
+}
+
+function doPost(e) {
+  return handle_(function () {
+    const b = JSON.parse((e.postData && e.postData.contents) || '{}');
+    if (b.key !== KEY) throw new Error('bad_key');
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try {
+      apply_(b);
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+    return readAll_();
+  });
+}
+
+function handle_(fn) {
+  let out;
+  try { out = { ok: true, data: fn() }; }
+  catch (err) { out = { ok: false, error: String(err && err.message || err) }; }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function sheet_(k) {
+  const s = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SH[k]);
+  if (!s) throw new Error('no_sheet ' + SH[k]);
+  return s;
+}
+
+/* ---------- чтение ---------- */
+function readAll_() {
+  return {
+    tasks: readTasks_(),
+    p13: readRows_('13', 5, 300),
+    pepo: readRows_('epo', 5, 300),
+    contacts: readRows_('contacts', 3, 0),
+    ts: new Date().toISOString()
+  };
+}
+
+function readTasks_() {
+  const s = sheet_('tasks'), last = s.getLastRow();
+  if (!last) return [];
+  const from = Math.max(1, last - 600 + 1), n = last - from + 1;
+  const vals = s.getRange(from, 1, n, 3).getDisplayValues();
+  const bgs = s.getRange(from, 2, n, 1).getBackgrounds();
+  return vals.map(function (v, i) { return [from + i, v[0], v[1], v[2], bgs[i][0]]; });
+}
+
+function readRows_(k, cols, tail) {
+  const s = sheet_(k), last = s.getLastRow();
+  if (!last) return [];
+  const from = tail ? Math.max(1, last - tail + 1) : 1, n = last - from + 1;
+  return s.getRange(from, 1, n, cols).getDisplayValues().map(function (v, i) { return [from + i].concat(v); });
+}
+
+/* ---------- запись ---------- */
+function norm_(x) { return String(x == null ? '' : x).trim().toLowerCase().replace(/\s+/g, ' '); }
+
+function checkTask_(s, row, text) {
+  if (norm_(s.getRange(row, 2).getDisplayValue()) !== norm_(text)) throw new Error('stale');
+}
+function checkPay_(s, row, brand, supplier) {
+  const v = s.getRange(row, 1, 1, 2).getDisplayValues()[0];
+  if (norm_(v[0]) !== norm_(brand) || norm_(v[1]) !== norm_(supplier)) throw new Error('stale');
+}
+function addNote_(s, row, note) {
+  const c = s.getRange(row, 3), cur = String(c.getDisplayValue() || '').trim();
+  c.setValue(cur ? cur + '; ' + note : note);
+}
+function parseDM_(x) {
+  const m = String(x || '').trim().match(/^(\d{1,2})\s*[.,\s\/]\s*(\d{1,2})(?:\D|$)/);
+  return m ? (+m[1]) + '.' + (+m[2]) : null;
+}
+function text_(range, value) { range.setNumberFormat('@').setValue(value); }
+
+function addTask_(s, date, text) {
+  const last = s.getLastRow();
+  const vals = last ? s.getRange(1, 1, last, 2).getDisplayValues() : [];
+  // Строки только дописываются вниз — номера существующих строк не меняются.
+  const target = parseDM_(date);
+  let lastDay = null;
+  vals.forEach(function (v) { const dm = parseDM_(v[0]); if (dm) lastDay = dm; });
+  let r;
+  if (last && lastDay === target) {
+    r = last + 1;
+  } else {
+    r = last ? last + 2 : 1;
+    text_(s.getRange(r, 1), date);
+  }
+  s.getRange(r, 2).setValue(text).setBackground(WHITE);
+  return r;
+}
+
+function apply_(b) {
+  const op = b.op;
+  if (op.indexOf('task_') === 0) {
+    const s = sheet_('tasks');
+    if (op === 'task_add') { addTask_(s, b.date, String(b.text).trim()); return; }
+    checkTask_(s, b.row, b.text);
+    if (op === 'task_done') s.getRange(b.row, 2).setBackground(GREEN);
+    else if (op === 'task_open') s.getRange(b.row, 2).setBackground(WHITE);
+    else if (op === 'task_skip') { s.getRange(b.row, 2).setBackground(YELLOW); addNote_(s, b.row, 'не нужно'); }
+    else if (op === 'task_move') {
+      s.getRange(b.row, 2).setBackground(YELLOW); addNote_(s, b.row, 'перенос на ' + b.date);
+      addTask_(s, b.date, String(b.text).trim());
+    }
+    else if (op === 'task_delete') { s.getRange(b.row, 2, 1, 2).clearContent(); s.getRange(b.row, 2).setBackground(WHITE); }
+    else throw new Error('bad_op');
+    return;
+  }
+  if (op.indexOf('pay_') === 0) {
+    const s = sheet_(b.bar === 'epo' ? 'epo' : '13');
+    if (op === 'pay_add') {
+      const r = s.getLastRow() + 1;
+      s.getRange(r, 1, 1, 2).setValues([[b.brand || '', b.supplier || '']]);
+      text_(s.getRange(r, 3), b.buy); text_(s.getRange(r, 4), b.due);
+      if (b.sum !== null && b.sum !== '' && b.sum !== undefined) s.getRange(r, 5).setValue(Number(b.sum));
+      return;
+    }
+    checkPay_(s, b.row, b.brand, b.supplier);
+    if (op === 'pay_paid') s.getRange(b.row, 5).clearContent();
+    else if (op === 'pay_sum') s.getRange(b.row, 5).setValue(Number(b.sum));
+    else throw new Error('bad_op');
+    return;
+  }
+  if (op === 'contact_add') {
+    const s = sheet_('contacts'), r = s.getLastRow() + 1;
+    s.getRange(r, 1).setValue(b.name);
+    text_(s.getRange(r, 2), b.phone || '');
+    text_(s.getRange(r, 3), b.nick || '');
+    return;
+  }
+  if (op === 'contact_edit') {
+    const s = sheet_('contacts');
+    if (norm_(s.getRange(b.row, 1).getDisplayValue()) !== norm_(b.old)) throw new Error('stale');
+    s.getRange(b.row, 1).setValue(b.name);
+    text_(s.getRange(b.row, 2), b.phone || '');
+    text_(s.getRange(b.row, 3), b.nick || '');
+    return;
+  }
+  throw new Error('bad_op');
+}

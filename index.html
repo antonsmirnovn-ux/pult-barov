@@ -122,6 +122,11 @@ button.cell:active,a.cell:active{background:var(--fill)}
 .cell .ph{font-size:15px;color:var(--link);font-variant-numeric:tabular-nums;user-select:all}
 .icbtn{width:36px;height:36px;border-radius:50%;background:var(--fill);color:var(--link);display:grid;place-items:center;flex:none}
 .icbtn svg{width:18px;height:18px}
+.cbody{display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-align:left;background:none}
+.cell .nk{font-size:15px;color:var(--muted);overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+.cfields{display:flex;flex-direction:column;gap:8px}
+.cfields label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.cfields input{border:0;background:var(--fill);border-radius:10px;padding:12px;font-size:17px;outline:none;color:var(--ink)}
 
 /* form */
 .fgroup .cell{padding:0 16px}
@@ -267,7 +272,8 @@ function parsePays(rows){
   });
   return out.reverse();
 }
-function parseContacts(rows){ return rows.map(([row,a,b])=>({id:"r"+row,row,name:String(a||"").trim(),phone:String(b||"").trim()})).filter(c=>c.name||c.phone); }
+function parseContacts(rows){ return rows.map(([row,a,b,c])=>({id:"r"+row,row,name:String(a||"").trim(),phone:String(b||"").trim(),nick:String(c||"").trim()})).filter(c=>c.name||c.phone||c.nick); }
+function tgHref(n){ n=String(n||"").trim(); let m=/t\.me\/([A-Za-z0-9_]{4,})/.exec(n)||/^@([A-Za-z0-9_]{4,})$/.exec(n); return m?"https://t.me/"+m[1]:""; }
 function ingest(d){
   st.tasks=parseTasks(d.tasks||[]); st.p13=parsePays(d.p13||[]); st.pepo=parsePays(d.pepo||[]); st.contacts=parseContacts(d.contacts||[]);
   st.at=Date.now(); st.err=null;
@@ -338,10 +344,16 @@ function addPurchase(key,f){
   st.ui["form"+key]=false;
   act("Закупка записана",{op:"pay_add",bar:key,brand:f.brand,supplier:f.supplier,buy:dmStr(f.buy),due:dmStr(f.due),sum:n});
 }
-function addContact(name,phone){
-  if(!name.trim()||!phone.trim()){ toast("Нужны имя и телефон",true); return; }
+function addContact(name,phone,nick){
+  name=name.trim(); phone=phone.trim(); nick=nick.trim();
+  if(!name||(!phone&&!nick)){ toast("Нужны имя и телефон или ник",true); return; }
   st.ui.formContact=false;
-  act("Контакт добавлен",{op:"contact_add",name:name.trim(),phone:phone.trim()});
+  act("Контакт добавлен",{op:"contact_add",name,phone,nick});
+}
+function editContact(c,name,phone,nick){
+  name=name.trim(); phone=phone.trim(); nick=nick.trim();
+  if(!name||(!phone&&!nick)){ toast("Нужны имя и телефон или ник",true); return; }
+  act("Контакт сохранён",{op:"contact_edit",row:c.row,old:c.name,name,phone,nick},()=>{ c.name=name; c.phone=phone; c.nick=nick; });
 }
 
 /* ---------- render: common ---------- */
@@ -442,17 +454,20 @@ function renderContacts(){
   let h='';
   if(st.ui.formContact&&st.contacts) h+='<form class="sect" data-form="contacts" autocomplete="off"><div class="sh">Новый контакт</div><div class="group fgroup">'+
     '<div class="cell"><label><span>Кто</span><input type="text" id="c-name" placeholder="Дмитрий электрик"></label></div>'+
-    '<div class="cell"><label><span>Телефон</span><input type="tel" id="c-phone" placeholder="8912…"></label></div></div>'+
+    '<div class="cell"><label><span>Телефон</span><input type="tel" id="c-phone" placeholder="8912…"></label></div>'+
+    '<div class="cell"><label><span>Ник / связь</span><input type="text" id="c-nick" placeholder="@telegram или WhatsApp" autocapitalize="off" autocorrect="off" spellcheck="false"></label></div></div>'+
     '<div class="btnrow"><button type="button" class="tbtn" data-act="toggleform" data-key="contacts">Отмена</button><button type="submit" class="tbtn" style="font-weight:600">Записать</button></div></form>';
   h+='<label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" id="search" placeholder="Поиск" value="'+esc(st.ui.search)+'" aria-label="Поиск контакта"></label>';
   const ld=loading(st.contacts); if(ld) return h+ld;
   const qv=norm(st.ui.search), qd=qv.replace(/\D/g,"");
-  const list=st.contacts.filter(c=>!qv||norm(c.name).includes(qv)||(qd.length>=3&&c.phone.replace(/\D/g,"").includes(qd)));
+  const list=st.contacts.filter(c=>!qv||norm(c.name).includes(qv)||norm(c.nick).includes(qv)||(qd.length>=3&&c.phone.replace(/\D/g,"").includes(qd)));
   if(!list.length) return h+'<div class="group"><div class="empty">'+(qv?"Никого не нашёл":"Контактов пока нет")+'</div></div>';
-  return h+'<div class="group">'+list.map(c=>
-    '<div class="cell"><span class="av">'+esc(initials(c.name))+'</span><span class="body"><span class="t">'+esc(c.name)+'</span><span class="ph">'+esc(phonePretty(c.phone))+'</span></span>'+
-    '<button class="icbtn" data-act="copy" data-v="'+esc(c.phone)+'" aria-label="Скопировать номер"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>'+
-    '<a class="icbtn" href="'+esc(telHref(c.phone))+'" aria-label="Позвонить"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg></a></div>'
+  return h+'<div class="group">'+list.map(c=>{ const tg=tgHref(c.nick);
+    return '<div class="cell"><button class="cbody" data-act="contact" data-id="'+esc(c.id)+'" aria-label="Изменить контакт"><span class="av">'+esc(initials(c.name))+'</span><span class="body"><span class="t">'+esc(c.name)+'</span>'+
+    (c.phone?'<span class="ph">'+esc(phonePretty(c.phone))+'</span>':"")+(c.nick?'<span class="nk">'+esc(c.nick)+'</span>':"")+'</span></button>'+
+    (c.phone||c.nick?'<button class="icbtn" data-act="copy" data-v="'+esc(c.phone||c.nick)+'" aria-label="Скопировать"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>':"")+
+    (tg?'<a class="icbtn" href="'+esc(tg)+'" target="_blank" rel="noopener" aria-label="Написать в Telegram"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.4 3.6 2.9 10.7c-1.2.5-1.2 1.3-.2 1.6l4.7 1.5 1.8 5.6c.2.6.4.8.9.8.4 0 .6-.2.9-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.7-.8l3.1-14.7c.3-1.3-.5-1.9-1.5-1.4zM8.9 13.4l9.3-5.9c.5-.3.9-.1.5.2l-8 7.2-.3 3.3-1.5-4.8z"/></svg></a>':"")+
+    (c.phone?'<a class="icbtn" href="'+esc(telHref(c.phone))+'" aria-label="Позвонить"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg></a>':"")+'</div>'; }
   ).join("")+'</div><button class="more" data-act="opensetup">Настройка подключения</button>';
 }
 
@@ -487,6 +502,14 @@ function renderSheet(){
     btns=s.edit?'<div class="sinput"><input inputmode="decimal" id="sheetSum" value="'+esc(p.sum)+'" aria-label="Сумма"></div><button class="sbtn ok" data-sa="savesum">Сохранить сумму</button>'
                :'<button class="sbtn ok" data-sa="paid">Оплачено</button><button class="sbtn" data-sa="editsum">Изменить сумму</button>';
   }
+  else if(s.type==="contact"){
+    const c=(st.contacts||[]).find(x=>x.id===s.id); if(!c){ closeSheet(); return; }
+    head='<div class="shead"><span class="t">Контакт</span><span class="m">'+esc(c.name)+'</span></div>';
+    btns='<div class="cfields"><label><span>Кто</span><input type="text" id="ce-name" value="'+esc(c.name)+'"></label>'+
+      '<label><span>Телефон</span><input type="tel" id="ce-phone" value="'+esc(c.phone)+'" placeholder="8912…"></label>'+
+      '<label><span>Ник / связь</span><input type="text" id="ce-nick" value="'+esc(c.nick)+'" placeholder="@telegram" autocapitalize="off" autocorrect="off" spellcheck="false"></label></div>'+
+      '<button class="sbtn ok" data-sa="savecontact">Сохранить</button>';
+  }
   sheetRoot.innerHTML='<div class="scrim" data-sa="close"><div class="sheet" role="dialog" aria-modal="true"><div class="sgroup">'+head+'<div class="sbtns">'+btns+'</div></div><div class="sgroup"><button class="sbtn cancel" data-sa="close">Отмена</button></div></div></div>';
   const inp=document.getElementById("sheetSum"); if(inp){ inp.focus(); inp.select(); }
 }
@@ -498,6 +521,9 @@ sheetRoot.addEventListener("click",e=>{
   if(s.type==="task"){ const t=findTask(s.id); if(!t) return;
     if(a==="done") markDone(t); else if(a==="undo") markOpen(t); else if(a==="skip") markSkip(t);
     else if(a==="move") moveTask(t,fromIso(s.to)); else if(a==="del"){ s.confirmDel=true; renderSheet(); } else if(a==="delyes") deleteTask(t);
+    return; }
+  if(s.type==="contact"){ const c=(st.contacts||[]).find(x=>x.id===s.id); if(!c) return;
+    if(a==="savecontact") editContact(c,document.getElementById("ce-name").value,document.getElementById("ce-phone").value,document.getElementById("ce-nick").value);
     return; }
   if(s.type==="pay"){ const p=findPay(s.key,s.id); if(!p) return;
     if(a==="paid") markPaid(s.key,p); else if(a==="editsum"){ s.edit=true; renderSheet(); } else if(a==="savesum") editSum(s.key,p,document.getElementById("sheetSum").value); }
@@ -553,6 +579,7 @@ view.addEventListener("click",e=>{
   if(a==="reload"){ load(); return; }
   if(a==="task"){ openSheet({type:"task",id}); return; }
   if(a==="pay"){ openSheet({type:"pay",key,id}); return; }
+  if(a==="contact"){ openSheet({type:"contact",id}); return; }
   if(a==="opensetup"){ setTab("setup"); return; }
   if(a==="closesetup"){ setTab("dela"); return; }
   if(a==="toggleform"){ if(key==="contacts") st.ui.formContact=!st.ui.formContact; else st.ui["form"+key]=!st.ui["form"+key]; render(); return; }
@@ -576,7 +603,7 @@ view.addEventListener("submit",e=>{
     API=u; KEY=c; lsSet("pult-api",u); lsSet("pult-key",c);
     st.err=null; setTab(lsGet("pult-tab")&&lsGet("pult-tab")!=="setup"?lsGet("pult-tab"):"dela"); load(); return;
   }
-  if(k==="contacts"){ addContact(document.getElementById("c-name").value,document.getElementById("c-phone").value); return; }
+  if(k==="contacts"){ addContact(document.getElementById("c-name").value,document.getElementById("c-phone").value,document.getElementById("c-nick").value); return; }
   const g=id=>document.getElementById("f-"+k+"-"+id).value;
   addPurchase(k,{brand:g("brand").trim(),supplier:g("sup").trim(),buy:fromIso(g("buy")),due:fromIso(g("due")),sum:g("sum").trim()});
 });
@@ -594,7 +621,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="4";
+const APP_VERSION="5";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
