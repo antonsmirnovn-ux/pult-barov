@@ -592,7 +592,17 @@ view.addEventListener("submit",e=>{
 render();
 load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") load(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
+// автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
+const APP_VERSION="4";
+async function checkUpdate(){
+  try{
+    const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
+    const v=t.trim();
+    if(v&&v!==APP_VERSION&&!st.busy&&!st.sheet){ location.reload(); }
+  }catch(_){}
+}
+setTimeout(checkUpdate,3000);
 setInterval(()=>{ if(sod(new Date())-TODAY) render(); },60000);
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 })();
