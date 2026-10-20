@@ -204,7 +204,8 @@ const TITLES={dela:"Дела","13":"13шка",epo:"Ещё по одной",konta
 /* ---------- settings ---------- */
 function lsGet(k){ try{ return localStorage.getItem(k)||""; }catch(_){ return ""; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(_){} }
-let API=lsGet("pult-api"), KEY=lsGet("pult-key");
+const DEF_API="https://script.google.com/macros/s/AKfycbyzVEtTJszhvZNB0ek8tQ3kAHxXnyQNfUy3Bra335nuSuOnLlrPxH-bRWyKKMT7X9gb/exec", DEF_KEY="bar-X2Ia0sqzqoS4";
+let API=lsGet("pult-api")||DEF_API, KEY=lsGet("pult-key")||DEF_KEY;
 
 /* ---------- dates ---------- */
 const DAY=86400000;
