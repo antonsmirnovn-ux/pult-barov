@@ -599,7 +599,7 @@ function render(){
     const t=b.dataset.tab; b.setAttribute("aria-current",t===st.tab&&!setup?"page":"false");
     let n=0;
     if(t==="13"||t==="epo") n=unpaidOf(t).filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<=1).length;
-    if(t==="dela"&&st.tasks){ const k=isoOf(TODAY); n=st.tasks.filter(x=>x.date===k&&x.status==="open").length; }
+    if(t==="dela"&&st.tasks){ n=st.tasks.filter(x=>{ if(x.status!=="open") return false; const dd=diffDays(fromIso(x.date),TODAY); return dd>=-14&&dd<=1; }).length; }
     let d=b.querySelector(".badge"); if(n){ if(!d){ d=document.createElement("span"); d.className="badge"; b.appendChild(d); } d.textContent=n; } else if(d) d.remove();
   });
   const sl=document.getElementById("syncLbl");
@@ -667,7 +667,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="7";
+const APP_VERSION="8";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
