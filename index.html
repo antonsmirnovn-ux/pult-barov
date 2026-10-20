@@ -123,6 +123,19 @@ button.cell:active,a.cell:active{background:var(--fill)}
 .cell .ph{font-size:15px;color:var(--link);font-variant-numeric:tabular-nums;user-select:all}
 .icbtn{width:36px;height:36px;border-radius:50%;background:var(--fill);color:var(--link);display:grid;place-items:center;flex:none}
 .icbtn svg{width:18px;height:18px}
+.hgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hcard{aspect-ratio:1/1;max-width:100%;background:var(--cell);border-radius:20px;padding:14px;display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;min-width:0;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.hcard:active{filter:brightness(.95)}
+.hcard .hi{width:40px;height:40px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin-bottom:auto}
+.hcard .hi svg{width:24px;height:24px}
+.hcard .ht{font-size:15px;font-weight:600;color:var(--muted)}
+.hcard .hv{font-family:var(--f-round);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.1;overflow-wrap:anywhere}
+.hcard .hs{font-size:13px;color:var(--muted);line-height:1.25}
+.hcard .hs b{color:var(--bad);font-weight:600}
+.hcard.hot{background:var(--accent)}
+.hcard.hot .ht,.hcard.hot .hv,.hcard.hot .hs,.hcard.hot .hs b{color:#fff}
+.hcard.hot .hi{background:rgba(255,255,255,.25);color:#fff}
+@media (max-width:340px){.hcard .hv{font-size:22px}}
 .cbody{display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-align:left;background:none}
 .cell .nk{font-size:15px;color:var(--muted);overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .cfields{display:flex;flex-direction:column;gap:8px}
@@ -145,7 +158,7 @@ button.cell:active,a.cell:active{background:var(--fill)}
 /* tab bar */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep);
   padding:6px max(8px,env(safe-area-inset-right,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
-nav.tabs .in{max-width:620px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)}
+nav.tabs .in{max-width:620px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:500;color:var(--muted);padding:2px 0 4px;position:relative}
 nav.tabs svg{width:26px;height:26px}
 nav.tabs button[aria-current=page]{color:var(--accent)}
@@ -191,6 +204,7 @@ nav.tabs .badge{position:absolute;top:-2px;left:calc(50% + 6px);min-width:18px;h
 
 <nav class="tabs" aria-label="Разделы">
   <div class="in">
+    <button data-tab="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.8"/><rect x="13" y="4" width="7" height="7" rx="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.8"/><rect x="13" y="13" width="7" height="7" rx="1.8"/></svg><span>Главная</span></button>
     <button data-tab="dela"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.5 9.5"/></svg><span>Дела</span></button>
     <button data-tab="13"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l-1.2 18H7.2z"/><path d="M6.6 8.5h10.8"/></svg><span>13шка</span></button>
     <button data-tab="epo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5h11v15h-11z"/><path d="M15.5 8.5h2.2a2 2 0 0 1 2 2v3.5a2 2 0 0 1-2 2h-2.2"/><path d="M4.5 9h11"/></svg><span>ЕпО</span></button>
@@ -205,7 +219,7 @@ nav.tabs .badge{position:absolute;top:-2px;left:calc(50% + 6px);min-width:18px;h
 "use strict";
 const MONTHS=["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 const WDL=["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
-const TITLES={dela:"Дела","13":"13шка",epo:"Ещё по одной",kontakty:"Контакты",setup:"Настройка"};
+const TITLES={home:"Пульт баров",dela:"Дела","13":"13шка",epo:"Ещё по одной",kontakty:"Контакты",setup:"Настройка"};
 
 /* ---------- settings ---------- */
 function lsGet(k){ try{ return localStorage.getItem(k)||""; }catch(_){ return ""; } }
@@ -472,6 +486,36 @@ function renderContacts(){
   ).join("")+'</div><button class="more" data-act="opensetup">Настройка подключения</button>';
 }
 
+/* ---------- render: home ---------- */
+function renderHome(){
+  const k=isoOf(TODAY), tk=isoOf(addDays(TODAY,1));
+  const T=st.tasks, todayT=T?T.filter(t=>t.date===k):[], left=todayT.filter(t=>t.status==="open").length;
+  const tomN=T?T.filter(t=>t.date===tk&&t.status==="open").length:0;
+  const tails=T?T.filter(t=>{ const d=fromIso(t.date), n=diffDays(d,TODAY); return n<0&&n>=-14&&t.status==="open"; }).length:0;
+  function payTile(key,title){
+    const l=payList(key); if(!l) return {v:"…",s:"загрузка",hot:false};
+    const un=unpaidOf(key), soon=un.filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<=1), over=un.filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<0);
+    const sum=un.reduce((a,p)=>a+p.sum,0), soonSum=soon.reduce((a,p)=>a+p.sum,0);
+    if(soon.length) return {v:money(soonSum),s:(over.length?over.length+" просрочено":"сегодня и завтра"),hot:true};
+    return {v:un.length?money(sum):"0 ₽",s:un.length?un.length+" "+plural(un.length,"счёт","счёта","счетов")+" к оплате":"всё оплачено",hot:false};
+  }
+  const p13=payTile("13"), pe=payTile("epo");
+  const ic={
+    dela:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.5 9.5"/></svg>',
+    b13:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l-1.2 18H7.2z"/><path d="M6.6 8.5h10.8"/></svg>',
+    epo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5h11v15h-11z"/><path d="M15.5 8.5h2.2a2 2 0 0 1 2 2v3.5a2 2 0 0 1-2 2h-2.2"/><path d="M4.5 9h11"/></svg>',
+    kon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.3 7.5-5.3s6.3 1.7 7.5 5.3"/></svg>'
+  };
+  const tile=(tab,hot,icon,title,v,sub)=>'<button class="hcard'+(hot?" hot":"")+'" data-act="go" data-tab="'+tab+'"><span class="hi">'+icon+'</span><span class="ht">'+title+'</span><span class="hv">'+v+'</span><span class="hs">'+sub+'</span></button>';
+  let h=staleNote()+'<div class="hgrid">'+
+    tile("dela",left>0,ic.dela,"Список дел",T?String(left):"…",T?(left?plural(left,"дело","дела","дел")+" на сегодня":"на сегодня всё")+(tomN?" · завтра "+tomN:"")+(tails?' · <b>'+tails+' не отмечено</b>':""):"загрузка")+
+    tile("13",p13.hot,ic.b13,"Оплаты 13шка",p13.v,p13.s)+
+    tile("epo",pe.hot,ic.epo,"Оплаты ЕпО",pe.v,pe.s)+
+    tile("kontakty",false,ic.kon,"Контакты",st.contacts?String(st.contacts.length):"…",st.contacts?plural(st.contacts.length,"контакт","контакта","контактов"):"загрузка")+
+    '</div>';
+  return h;
+}
+
 /* ---------- render: setup ---------- */
 function renderSetup(){
   return '<form class="sect" data-form="setup" autocomplete="off"><div class="sh">Подключение к таблице</div><div class="group fgroup">'+
@@ -543,12 +587,12 @@ function render(){
   let hb=document.getElementById("hdrAct");
   if(!hb){ hb=document.createElement("button"); hb.id="hdrAct"; hb.className="tbtn"; hb.style.cssText="float:right;margin-top:8px"; pt.parentNode.insertBefore(hb,pt); }
   const fk=st.tab==="kontakty"?"contacts":st.tab;
-  if(setup||st.tab==="dela") hb.hidden=true;
+  if(setup||st.tab==="dela"||st.tab==="home") hb.hidden=true;
   else { const open=fk==="contacts"?st.ui.formContact:st.ui["form"+fk]; const list=fk==="contacts"?st.contacts:payList(fk);
     hb.textContent=fk==="contacts"?"+ Контакт":"+ Закупка"; hb.hidden=open||!list; hb.dataset.key=fk; }
   const ae=document.activeElement, aid=ae&&ae.id&&view.contains(ae)?ae.id:null, sel=aid&&("selectionStart" in ae)?[ae.selectionStart,ae.selectionEnd]:null;
   const keep={}; view.querySelectorAll("input[id]").forEach(i=>{ keep[i.id]=i.value; });
-  view.innerHTML=setup?renderSetup():st.tab==="dela"?renderTasks():st.tab==="13"?renderPays("13"):st.tab==="epo"?renderPays("epo"):renderContacts();
+  view.innerHTML=setup?renderSetup():st.tab==="home"?renderHome():st.tab==="dela"?renderTasks():st.tab==="13"?renderPays("13"):st.tab==="epo"?renderPays("epo"):renderContacts();
   Object.keys(keep).forEach(id=>{ const i=document.getElementById(id); if(i) i.value=keep[id]; });
   if(aid){ const i=document.getElementById(aid); if(i){ i.focus(); if(sel&&i.setSelectionRange){ try{i.setSelectionRange(sel[0],sel[1]);}catch(_){} } } }
   document.querySelectorAll("nav.tabs button").forEach(b=>{
@@ -581,6 +625,7 @@ view.addEventListener("click",e=>{
   if(a==="task"){ openSheet({type:"task",id}); return; }
   if(a==="pay"){ openSheet({type:"pay",key,id}); return; }
   if(a==="contact"){ openSheet({type:"contact",id}); return; }
+  if(a==="go"){ setTab(b.dataset.tab); return; }
   if(a==="opensetup"){ setTab("setup"); return; }
   if(a==="closesetup"){ setTab("dela"); return; }
   if(a==="toggleform"){ if(key==="contacts") st.ui.formContact=!st.ui.formContact; else st.ui["form"+key]=!st.ui["form"+key]; render(); return; }
@@ -614,7 +659,7 @@ view.addEventListener("submit",e=>{
   // ссылка вида index.html#connect=АДРЕС|КОД сохраняет настройки
   const h=decodeURIComponent((location.hash||"").slice(1));
   if(h.indexOf("connect=")===0){ const [u,c]=h.slice(8).split("|"); if(u&&c){ API=u; KEY=c; lsSet("pult-api",u); lsSet("pult-key",c); } try{ history.replaceState(null,"",location.pathname); }catch(_){} }
-  const ok=["dela","13","epo","kontakty"]; const t=lsGet("pult-tab"); st.tab=ok.includes(t)?t:"dela";
+  st.tab="home";
   try{ const c=JSON.parse(localStorage.getItem("pult-cache")||"null"); if(c){ ingest(c); st.at=0; } }catch(_){}
 })();
 render();
@@ -622,7 +667,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="6";
+const APP_VERSION="7";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
