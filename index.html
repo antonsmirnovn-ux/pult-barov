@@ -103,6 +103,7 @@ button.cell:active,a.cell:active{background:var(--fill)}
 .tile .k{font-size:13px;color:var(--muted)}
 .tile .v{font-family:var(--f-round);font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .tile .s{font-size:13px;color:var(--muted)}
+.tile .warnc{color:var(--bad);font-weight:600}
 .tile.hot{background:var(--accent)} .tile.hot .k,.tile.hot .s,.tile.hot .v{color:#fff}
 .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--sep)}
 .over .dot{background:var(--bad)} .today .dot{background:var(--accent)} .tom .dot{background:var(--warn)}
@@ -395,7 +396,7 @@ function renderTasks(){
   { const tt=today?today.tasks:[], left=tt.filter(t=>t.status==="open").length, done=tt.filter(t=>t.status==="done").length;
     const tom=groups.find(g=>diffDays(g.date,TODAY)===1), tomN=tom?tom.tasks.filter(t=>t.status==="open").length:0;
     h+='<div class="tiles"><div class="tile'+(left?" hot":"")+'"><span class="k">Сегодня осталось</span><span class="v">'+left+'</span><span class="s">'+(tt.length?"сделано "+done+" из "+tt.length:"дел нет")+'</span></div>'+
-      '<div class="tile"><span class="k">'+(tails.length?"Не отмечено":"На завтра")+'</span><span class="v">'+(tails.length?tails.length:tomN)+'</span><span class="s">'+(tails.length?"с прошлых дней":plural(tomN,"дело","дела","дел"))+'</span></div></div>'; }
+      '<div class="tile"><span class="k">На завтра</span><span class="v">'+tomN+'</span><span class="s">'+plural(tomN,"дело","дела","дел")+(tails.length?' · <b class="warnc">'+tails.length+' не отмечено</b>':'')+'</span></div></div>'; }
   if(today) h+=dayBlock(today);
   else h+='<div class="sect"><div class="sh"><b>Сегодня</b><span>'+dmStr(TODAY)+'</span></div><div class="group"><div class="empty">На сегодня дел нет</div></div></div>';
   if(tails.length) h+='<div class="sect"><div class="sh"><b>Не отмечено</b><span class="r">'+tails.length+'</span></div><div class="group">'+tails.map(t=>taskCell(t,"с "+dmStr(t._d))).join("")+'</div><div class="foot">Дела прошлых дней без отметки.</div></div>';
@@ -621,7 +622,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="5";
+const APP_VERSION="6";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
