@@ -260,7 +260,7 @@ function parsePays(rows){
   const out=[];
   rows.forEach(([row,a,b,c,d,e])=>{
     const brand=String(a||"").trim(), supplier=String(b||"").trim(); if(!brand&&!supplier) return;
-    const buyD=nearest(parseDM(c),TODAY), dd=parseDM(d), dueD=dd?nearest(dd,buyD?addDays(buyD,14):TODAY):null;
+    let buyD=nearest(parseDM(c),TODAY); if(buyD&&diffDays(buyD,TODAY)>7) buyD=new Date(buyD.getFullYear()-1,buyD.getMonth(),buyD.getDate()); const dd=parseDM(d), dueD=dd?nearest(dd,buyD?addDays(buyD,14):TODAY):null;
     const n=numOf(e);
     out.push({id:"r"+row,row,brand,supplier,buyD,dueD,sum:(n==null||isNaN(n))?null:n,created:row});
   });
@@ -324,7 +324,7 @@ function markSkip(t){ act("Отмечено: больше не нужно",Objec
 function moveTask(t,date){ act("Перенесено на "+relShort(date),Object.assign({op:"task_move",date:dmStr(date)},T(t)),()=>{t.status="skip";t.comment="перенос на "+dmStr(date);}); }
 function deleteTask(t){ act("Дело удалено",Object.assign({op:"task_delete"},T(t)),()=>{ st.tasks=st.tasks.filter(x=>x!==t); }); }
 const payList=key=>st[PKEY[key]];
-function unpaidOf(key){ const l=payList(key); if(!l) return []; return l.filter(p=>p.sum!=null).sort((a,b)=>(a.dueD||Infinity)-(b.dueD||Infinity)); }
+function unpaidOf(key){ const l=payList(key); if(!l) return []; return l.slice(0,40).filter(p=>p.sum!=null).sort((a,b)=>(a.dueD||Infinity)-(b.dueD||Infinity)); }
 const findPay=(key,id)=>(payList(key)||[]).find(x=>x.id===id);
 const P=(key,p)=>({bar:key,row:p.row,brand:p.brand,supplier:p.supplier});
 function markPaid(key,p){ act("Оплачено: "+(p.brand||p.supplier),Object.assign({op:"pay_paid"},P(key,p)),()=>{p.sum=null;}); }
