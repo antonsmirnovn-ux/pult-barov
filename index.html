@@ -19,7 +19,7 @@
 :root{
   --bg:#F2F2F7; --cell:#FFFFFF; --ink:#000000; --muted:#8A8A8E; --sep:#C6C6C8; --fill:#E9E9EE;
   --accent:#E08A00; --accent-soft:#FFF1DA;
-  --ok:#34C759; --ok-soft:#E3F7E8; --warn:#FFC400; --warn-ink:#8A6A00; --warn-soft:#FFF4C2;
+  --ok:#34C759; --ok-soft:#E3F7E8; --okbg:#2DA44E; --warn:#FFC400; --warn-ink:#8A6A00; --warn-soft:#FFF4C2;
   --bad:#FF3B30; --bad-soft:#FFE5E3; --link:#007AFF;
   --bar:rgba(249,249,249,.86); --dim:rgba(0,0,0,.35);
   --btn-ok:#9EE3B1; --btn-or:#FFB86B; --btn-del:#FF9A8A; --btn-ink:#000000;
@@ -28,11 +28,11 @@
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#000000; --cell:#1C1C1E; --ink:#FFFFFF; --muted:#8D8D93; --sep:#38383A; --fill:#2C2C2E;
-  --accent:#FFA62B; --accent-soft:#3A2A10; --ok:#30D158; --ok-soft:#12301C; --warn:#FFD60A; --warn-ink:#FFD60A; --warn-soft:#3A3208;
+  --accent:#FFA62B; --accent-soft:#3A2A10; --ok:#30D158; --ok-soft:#12301C; --okbg:#238636; --warn:#FFD60A; --warn-ink:#FFD60A; --warn-soft:#3A3208;
   --bad:#FF453A; --bad-soft:#3B1715; --link:#0A84FF; --bar:rgba(22,22,24,.86); --dim:rgba(0,0,0,.55); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#000000; --cell:#1C1C1E; --ink:#FFFFFF; --muted:#8D8D93; --sep:#38383A; --fill:#2C2C2E;
-  --accent:#FFA62B; --accent-soft:#3A2A10; --ok:#30D158; --ok-soft:#12301C; --warn:#FFD60A; --warn-ink:#FFD60A; --warn-soft:#3A3208;
+  --accent:#FFA62B; --accent-soft:#3A2A10; --ok:#30D158; --ok-soft:#12301C; --okbg:#238636; --warn:#FFD60A; --warn-ink:#FFD60A; --warn-soft:#3A3208;
   --bad:#FF453A; --bad-soft:#3B1715; --link:#0A84FF; --bar:rgba(22,22,24,.86); --dim:rgba(0,0,0,.55); color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
@@ -128,12 +128,19 @@ button.cell:active,a.cell:active{background:var(--fill)}
 .hcard:active{filter:brightness(.95)}
 .hcard .hi{width:40px;height:40px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin-bottom:auto}
 .hcard .hi svg{width:24px;height:24px}
-.hcard .ht{font-size:15px;font-weight:600;color:var(--muted)}
+.hcard{position:relative}
+.hcard .ht{font-size:20px;font-weight:700;color:var(--ink);line-height:1.15;margin-bottom:2px}
+.hbadge{position:absolute;top:10px;right:10px;min-width:26px;height:26px;padding:0 8px;border-radius:13px;background:var(--bad);color:#fff;font-size:15px;font-weight:700;line-height:26px;text-align:center;box-shadow:0 0 0 2px var(--cell)}
+.hcard.hot .hbadge,.hcard.ok .hbadge{box-shadow:0 0 0 2px rgba(255,255,255,.9)}
+.hcard.ok{background:var(--okbg)}
+.hcard.ok .ht,.hcard.ok .hv,.hcard.ok .hs{color:#fff}
+.hcard.ok .hi{background:rgba(255,255,255,.25);color:#fff}
 .hcard .hv{font-family:var(--f-round);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.1;overflow-wrap:anywhere}
 .hcard .hs{font-size:13px;color:var(--muted);line-height:1.25}
 .hcard .hs b{color:var(--bad);font-weight:600}
 .hcard.hot{background:var(--accent)}
 .hcard.hot .ht,.hcard.hot .hv,.hcard.hot .hs,.hcard.hot .hs b{color:#fff}
+.hcard .hv{font-size:24px}
 .hcard.hot .hi{background:rgba(255,255,255,.25);color:#fff}
 @media (max-width:340px){.hcard .hv{font-size:22px}}
 .cbody{display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-align:left;background:none}
@@ -486,6 +493,13 @@ function renderContacts(){
   ).join("")+'</div><button class="more" data-act="opensetup">Настройка подключения</button>';
 }
 
+/* ---------- counters ---------- */
+function badgeCount(t){
+  if(t==="13"||t==="epo") return unpaidOf(t).filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<=1).length;
+  if(t==="dela"&&st.tasks) return st.tasks.filter(x=>{ if(x.status!=="open") return false; const dd=diffDays(fromIso(x.date),TODAY); return dd>=-14&&dd<=1; }).length;
+  return 0;
+}
+
 /* ---------- render: home ---------- */
 function renderHome(){
   const k=isoOf(TODAY), tk=isoOf(addDays(TODAY,1));
@@ -497,7 +511,7 @@ function renderHome(){
     const un=unpaidOf(key), soon=un.filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<=1), over=un.filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<0);
     const sum=un.reduce((a,p)=>a+p.sum,0), soonSum=soon.reduce((a,p)=>a+p.sum,0);
     if(soon.length) return {v:money(soonSum),s:(over.length?over.length+" просрочено":"сегодня и завтра"),hot:true};
-    return {v:un.length?money(sum):"0 ₽",s:un.length?un.length+" "+plural(un.length,"счёт","счёта","счетов")+" к оплате":"всё оплачено",hot:false};
+    return {v:un.length?money(sum):"0 ₽",s:un.length?"ближайших оплат нет · всего "+un.length+" "+plural(un.length,"счёт","счёта","счетов"):"всё оплачено",hot:false,ok:true};
   }
   const p13=payTile("13"), pe=payTile("epo");
   const ic={
@@ -506,12 +520,15 @@ function renderHome(){
     epo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5h11v15h-11z"/><path d="M15.5 8.5h2.2a2 2 0 0 1 2 2v3.5a2 2 0 0 1-2 2h-2.2"/><path d="M4.5 9h11"/></svg>',
     kon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.3 7.5-5.3s6.3 1.7 7.5 5.3"/></svg>'
   };
-  const tile=(tab,hot,icon,title,v,sub)=>'<button class="hcard'+(hot?" hot":"")+'" data-act="go" data-tab="'+tab+'"><span class="hi">'+icon+'</span><span class="ht">'+title+'</span><span class="hv">'+v+'</span><span class="hs">'+sub+'</span></button>';
+  const tile=(tab,state,icon,title,v,sub)=>{ const n=badgeCount(tab);
+    return '<button class="hcard'+(state?" "+state:"")+'" data-act="go" data-tab="'+tab+'">'+(n?'<span class="hbadge">'+n+'</span>':"")+'<span class="hi">'+icon+'</span><span class="ht">'+title+'</span><span class="hv">'+v+'</span><span class="hs">'+sub+'</span></button>'; };
+  const dState=!T?"":(left||tomN||tails)?"hot":"ok";
+  const pState=x=>x.hot?"hot":x.ok?"ok":"";
   let h=staleNote()+'<div class="hgrid">'+
-    tile("dela",left>0,ic.dela,"Список дел",T?String(left):"…",T?(left?plural(left,"дело","дела","дел")+" на сегодня":"на сегодня всё")+(tomN?" · завтра "+tomN:"")+(tails?' · <b>'+tails+' не отмечено</b>':""):"загрузка")+
-    tile("13",p13.hot,ic.b13,"Оплаты 13шка",p13.v,p13.s)+
-    tile("epo",pe.hot,ic.epo,"Оплаты ЕпО",pe.v,pe.s)+
-    tile("kontakty",false,ic.kon,"Контакты",st.contacts?String(st.contacts.length):"…",st.contacts?plural(st.contacts.length,"контакт","контакта","контактов"):"загрузка")+
+    tile("dela",dState,ic.dela,"Список дел",T?String(left):"…",T?(left?plural(left,"дело","дела","дел")+" на сегодня":"на сегодня всё")+(tomN?" · завтра "+tomN:"")+(tails?' · <b>'+tails+' не отмечено</b>':""):"загрузка")+
+    tile("13",pState(p13),ic.b13,"Оплаты 13шка",p13.v,p13.s)+
+    tile("epo",pState(pe),ic.epo,"Оплаты ЕпО",pe.v,pe.s)+
+    tile("kontakty","",ic.kon,"Контакты",st.contacts?String(st.contacts.length):"…",st.contacts?plural(st.contacts.length,"контакт","контакта","контактов"):"загрузка")+
     '</div>';
   return h;
 }
@@ -597,9 +614,7 @@ function render(){
   if(aid){ const i=document.getElementById(aid); if(i){ i.focus(); if(sel&&i.setSelectionRange){ try{i.setSelectionRange(sel[0],sel[1]);}catch(_){} } } }
   document.querySelectorAll("nav.tabs button").forEach(b=>{
     const t=b.dataset.tab; b.setAttribute("aria-current",t===st.tab&&!setup?"page":"false");
-    let n=0;
-    if(t==="13"||t==="epo") n=unpaidOf(t).filter(p=>p.dueD&&diffDays(p.dueD,TODAY)<=1).length;
-    if(t==="dela"&&st.tasks){ n=st.tasks.filter(x=>{ if(x.status!=="open") return false; const dd=diffDays(fromIso(x.date),TODAY); return dd>=-14&&dd<=1; }).length; }
+    const n=badgeCount(t);
     let d=b.querySelector(".badge"); if(n){ if(!d){ d=document.createElement("span"); d.className="badge"; b.appendChild(d); } d.textContent=n; } else if(d) d.remove();
   });
   const sl=document.getElementById("syncLbl");
@@ -667,7 +682,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="8";
+const APP_VERSION="9";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
