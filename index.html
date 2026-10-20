@@ -91,7 +91,9 @@ button.cell:active,a.cell:active{background:var(--fill)}
 .add input{flex:1;min-width:0;border:0;background:transparent;padding:8px 0;font-size:17px;outline:none}
 .add .go{background:var(--accent);color:#fff;border-radius:999px;padding:8px 14px;font-size:15px;font-weight:600}
 .add .go:disabled{opacity:.4}
-.segm{display:grid;grid-template-columns:1fr 1fr;background:var(--fill);border-radius:9px;padding:2px;gap:2px}
+.pickrow label{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 16px;min-height:46px}
+.pickrow input{border:0;background:transparent;font-size:17px;color:var(--ink);text-align:right;outline:none}
+.segm{display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--fill);border-radius:9px;padding:2px;gap:2px}
 .segm button{border-radius:7px;padding:6px 0;font-size:14px;font-weight:500}
 .segm button[aria-pressed=true]{background:var(--cell);box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600}
 .more{align-self:center;color:var(--link);font-size:15px;padding:8px 14px}
@@ -401,7 +403,8 @@ function taskCell(t,sub){
 function renderTasks(){
   let h='<div class="sect"><div class="group"><div class="add"><input type="text" id="taskText" placeholder="Новое дело" autocomplete="off" enterkeyhint="done">'+
     '<button class="go" data-act="addtask" '+(!st.tasks?"disabled":"")+'>Добавить</button></div></div>'+
-    '<div class="segm" role="group" aria-label="На какой день"><button data-act="addday" data-d="0" aria-pressed="'+(st.ui.addDay===0)+'">На сегодня</button><button data-act="addday" data-d="1" aria-pressed="'+(st.ui.addDay===1)+'">На завтра</button></div></div>';
+    '<div class="segm" role="group" aria-label="На какой день"><button data-act="addday" data-d="0" aria-pressed="'+(st.ui.addDay===0)+'">Сегодня</button><button data-act="addday" data-d="1" aria-pressed="'+(st.ui.addDay===1)+'">Завтра</button><button data-act="addday" data-d="2" aria-pressed="'+(st.ui.addDay===2)+'">'+(st.ui.addDay===2&&st.ui.pickDate?relDay(fromIso(st.ui.pickDate)):"Другой день")+'</button></div>'+
+    (st.ui.addDay===2?'<div class="group pickrow"><label><span>Дата</span><input type="date" id="pickDate" min="'+isoOf(TODAY)+'" value="'+esc(st.ui.pickDate||isoOf(addDays(TODAY,2)))+'"></label></div>':"")+'</div>';
   const ld=loading(st.tasks); if(ld) return h+ld;
   h+=staleNote();
   const byDate=new Map();
@@ -492,6 +495,10 @@ function renderContacts(){
     (c.phone?'<a class="icbtn" href="'+esc(telHref(c.phone))+'" aria-label="Позвонить"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg></a>':"")+'</div>'; }
   ).join("")+'</div><button class="more" data-act="opensetup">Настройка подключения</button>';
 }
+
+/* ---------- day picker ---------- */
+function addTarget(){ if(st.ui.addDay===2){ const d=fromIso(st.ui.pickDate); return d&&diffDays(d,TODAY)>=0?d:addDays(TODAY,2); } return addDays(TODAY,st.ui.addDay); }
+function relDay(d){ if(!d) return "Другой день"; const w=["вс","пн","вт","ср","чт","пт","сб"][d.getDay()]; return w+", "+dmStr(d); }
 
 /* ---------- counters ---------- */
 function badgeCount(t){
@@ -633,8 +640,8 @@ document.querySelector("header.top").addEventListener("click",e=>{ const b=e.tar
 view.addEventListener("click",e=>{
   const b=e.target.closest("[data-act]"); if(!b) return;
   const a=b.dataset.act, id=b.dataset.id, key=b.dataset.key;
-  if(a==="addday"){ st.ui.addDay=+b.dataset.d; render(); return; }
-  if(a==="addtask"){ addTask(addDays(TODAY,st.ui.addDay),document.getElementById("taskText").value); return; }
+  if(a==="addday"){ st.ui.addDay=+b.dataset.d; if(st.ui.addDay===2&&!st.ui.pickDate) st.ui.pickDate=isoOf(addDays(TODAY,2)); render(); return; }
+  if(a==="addtask"){ addTask(addTarget(),document.getElementById("taskText").value); return; }
   if(a==="moredays"){ st.ui.showDays+=5; render(); return; }
   if(a==="reload"){ load(); return; }
   if(a==="task"){ openSheet({type:"task",id}); return; }
@@ -646,7 +653,8 @@ view.addEventListener("click",e=>{
   if(a==="toggleform"){ if(key==="contacts") st.ui.formContact=!st.ui.formContact; else st.ui["form"+key]=!st.ui["form"+key]; render(); return; }
   if(a==="copy"){ const v=b.dataset.v; try{ navigator.clipboard.writeText(v).then(()=>toast("Номер скопирован"),()=>toast("Скопируйте вручную: "+v)); }catch(_){ toast("Скопируйте вручную: "+v); } return; }
 });
-view.addEventListener("keydown",e=>{ if(e.key==="Enter"&&e.target.id==="taskText"){ e.preventDefault(); addTask(addDays(TODAY,st.ui.addDay),e.target.value); } });
+view.addEventListener("keydown",e=>{ if(e.key==="Enter"&&e.target.id==="taskText"){ e.preventDefault(); addTask(addTarget(),e.target.value); } });
+view.addEventListener("change",e=>{ if(e.target.id==="pickDate"){ st.ui.pickDate=e.target.value; render(); } });
 view.addEventListener("input",e=>{
   if(e.target.id==="search"){ st.ui.search=e.target.value; render(); return; }
   const m=/^f-(13|epo)-brand$/.exec(e.target.id||"");
@@ -682,7 +690,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="11";
+const APP_VERSION="12";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
