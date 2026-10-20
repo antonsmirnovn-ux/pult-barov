@@ -526,9 +526,9 @@ function renderHome(){
   const pState=x=>x.hot?"hot":x.ok?"ok":"";
   let h=staleNote()+'<div class="hgrid">'+
     tile("dela",dState,ic.dela,"Список дел",T?String(left):"…",T?(left?plural(left,"дело","дела","дел")+" на сегодня":"на сегодня всё")+(tomN?" · завтра "+tomN:"")+(tails?' · <b>'+tails+' не отмечено</b>':""):"загрузка")+
-    tile("13",pState(p13),ic.b13,"Оплаты 13шка",p13.v,p13.s)+
-    tile("epo",pState(pe),ic.epo,"Оплаты ЕпО",pe.v,pe.s)+
     tile("kontakty","",ic.kon,"Контакты",st.contacts?String(st.contacts.length):"…",st.contacts?plural(st.contacts.length,"контакт","контакта","контактов"):"загрузка")+
+    tile("epo",pState(pe),ic.epo,"Оплаты ЕпО",pe.v,pe.s)+
+    tile("13",pState(p13),ic.b13,"Оплаты 13шка",p13.v,p13.s)+
     '</div>';
   return h;
 }
@@ -682,7 +682,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="9";
+const APP_VERSION="10";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
