@@ -409,7 +409,7 @@ function renderTasks(){
   const groups=[...byDate.entries()].map(([k,ts])=>({date:fromIso(k),tasks:ts.sort((a,b)=>(a.created||0)-(b.created||0))})).filter(g=>g.date).sort((a,b)=>b.date-a.date);
   const tails=[];
   groups.forEach(g=>{ const n=diffDays(g.date,TODAY); if(n<0&&n>=-14) g.tasks.forEach(t=>{ if(t.status==="open") tails.push(Object.assign({},t,{_d:g.date})); }); });
-  const future=groups.filter(g=>diffDays(g.date,TODAY)>0).reverse();
+  const future=groups.filter(g=>diffDays(g.date,TODAY)>0);
   const today=groups.find(g=>diffDays(g.date,TODAY)===0);
   const pastAll=groups.filter(g=>diffDays(g.date,TODAY)<0), past=pastAll.slice(0,st.ui.showDays);
   const dayBlock=g=>{ const done=g.tasks.filter(t=>t.status!=="open").length;
@@ -418,10 +418,10 @@ function renderTasks(){
     const tom=groups.find(g=>diffDays(g.date,TODAY)===1), tomN=tom?tom.tasks.filter(t=>t.status==="open").length:0;
     h+='<div class="tiles"><div class="tile'+(left?" hot":"")+'"><span class="k">Сегодня осталось</span><span class="v">'+left+'</span><span class="s">'+(tt.length?"сделано "+done+" из "+tt.length:"дел нет")+'</span></div>'+
       '<div class="tile"><span class="k">На завтра</span><span class="v">'+tomN+'</span><span class="s">'+plural(tomN,"дело","дела","дел")+(tails.length?' · <b class="warnc">'+tails.length+' не отмечено</b>':'')+'</span></div></div>'; }
+  future.forEach(g=>{ h+=dayBlock(g); });
   if(today) h+=dayBlock(today);
   else h+='<div class="sect"><div class="sh"><b>Сегодня</b><span>'+dmStr(TODAY)+'</span></div><div class="group"><div class="empty">На сегодня дел нет</div></div></div>';
   if(tails.length) h+='<div class="sect"><div class="sh"><b>Не отмечено</b><span class="r">'+tails.length+'</span></div><div class="group">'+tails.map(t=>taskCell(t,"с "+dmStr(t._d))).join("")+'</div><div class="foot">Дела прошлых дней без отметки.</div></div>';
-  future.forEach(g=>{ h+=dayBlock(g); });
   past.forEach(g=>{ h+=dayBlock(g); });
   if(pastAll.length>st.ui.showDays) h+='<button class="more" data-act="moredays">Показать ещё</button>';
   return h;
@@ -682,7 +682,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="10";
+const APP_VERSION="11";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
