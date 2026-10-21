@@ -309,6 +309,7 @@ function errText(code){
   if(code==="bad_key") return "Неверный код доступа. Откройте «Настройка» и введите код заново.";
   if(code==="stale") return "Строка в таблице изменилась. Данные обновлены — повторите действие.";
   if(code==="offline") return "Нет интернета. Показаны последние сохранённые данные.";
+  if(code==="bad_op") return "Скрипт в Google устарел: выпустите новую версию развертывания (Управление развертываниями → Новая версия).";
   if(code&&code.indexOf("no_sheet")===0) return "В таблице не найден лист: "+code.slice(9);
   return "Таблица не ответила. Попробуйте ещё раз.";
 }
@@ -690,7 +691,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="12";
+const APP_VERSION="13";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
