@@ -1,5 +1,5 @@
 // Рабочий чат: оболочка приложения + push-уведомления (Firebase Cloud Messaging).
-const CACHE = "chat-v11";
+const CACHE = "chat-v12";
 const SHELL = ["./", "index.html", "config.js", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 
