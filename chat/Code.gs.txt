@@ -86,7 +86,7 @@ function route_(b) {
     case 'push_reg': return pushReg_(me, b.fcm);
     case 'push_test': sendTo_([me.id], 'Рабочий чат', 'Уведомления работают 👍', APP_URL); return true;
     case 'users': admin_(me); return listUsers_(true);
-    case 'user_save': admin_(me); return userSave_(b.user);
+    case 'user_save': admin_(me); return userSave_(me, b.user);
     case 'user_del': admin_(me); return userDel_(b.id);
   }
   throw new Error('bad_op');
@@ -106,12 +106,12 @@ function users_() {
   const c = CacheService.getScriptCache(), hit = c.get('users');
   if (hit) return JSON.parse(hit);
   const list = rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; })
-    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, token: String(u.token || ''), _row: u._row }; });
+    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', token: String(u.token || ''), _row: u._row }; });
   c.put('users', JSON.stringify(list), 300);
   return list;
 }
 function barsOf_(v) { v = String(v || '').toLowerCase(); return v === 'both' || v === 'оба' ? ['13', 'epo'] : (v.indexOf('epo') >= 0 || v.indexOf('епо') >= 0 ? ['epo'] : ['13']); }
-function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin }; }
+function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper }; }
 function dropCache_() { CacheService.getScriptCache().remove('users'); }
 
 function login_(pin) {
@@ -136,28 +136,31 @@ function admin_(me) { if (!me.admin) throw new Error('forbidden'); }
 
 function listUsers_(withPins) {
   return rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; }).map(function (u) {
-    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true };
+    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper' };
     if (withPins) o.pin = String(u.pin);
     return o;
   });
 }
-function userSave_(x) {
+function userSave_(me, x) {
   const s = sh_('users'), all = rows_(s, U_COLS);
   const name = String(x.name || '').trim(), pin = String(x.pin || '').trim();
   if (!name) throw new Error('Нужно имя');
   if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN — от 4 до 8 цифр');
   if (all.some(function (u) { return u.active !== false && String(u.pin) === pin && +u.id !== +x.id; })) throw new Error('Такой PIN уже занят');
   const bars = x.bars && x.bars.length === 2 ? 'both' : (x.bars && x.bars[0] === 'epo' ? 'epo' : '13');
+  // роль: true — админ (управляет сотрудниками), 'helper' — помощник (уведомления как у админа), false — сотрудник
+  const role = x.role === 'admin' ? true : x.role === 'helper' ? 'helper' : false;
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     const cur = x.id ? all.filter(function (u) { return +u.id === +x.id; })[0] : null;
     if (cur) {
       const pinChanged = String(cur.pin) !== pin;
-      s.getRange(cur._row, 2, 1, 4).setValues([[name, pin, bars, !!x.admin]]);
+      if (+cur.id === me.id && role !== true) throw new Error('Нельзя снять админа с самого себя');
+      s.getRange(cur._row, 2, 1, 4).setValues([[name, pin, bars, role]]);
       if (pinChanged) s.getRange(cur._row, 6).setValue(''); // старый вход сбрасывается
     } else {
       const id = all.reduce(function (m, u) { return Math.max(m, +u.id || 0); }, 0) + 1;
-      s.appendRow([id, name, pin, bars, !!x.admin, '', true]);
+      s.appendRow([id, name, pin, bars, role, '', true]);
     }
   } finally { lock.releaseLock(); }
   dropCache_();
@@ -343,11 +346,11 @@ function checkStatuses_() {
 }
 
 /* ================= уведомления (Firebase Cloud Messaging) ================= */
-function adminIds_() { return users_().filter(function (u) { return u.admin; }).map(function (u) { return u.id; }); }
+function adminIds_() { return users_().filter(function (u) { return u.admin || u.helper; }).map(function (u) { return u.id; }); }
 
 function notifyNew_(me, bar, ch, text, hasPhoto) {
   const users = users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0; });
-  const to = users.filter(function (u) { return ch !== 'shift' || u.admin; }).map(function (u) { return u.id; });
+  const to = users.filter(function (u) { return ch !== 'shift' || u.admin || u.helper; }).map(function (u) { return u.id; });
   if (!to.length) return;
   const title = (ch === 'prob' ? '⚠️ Проблема · ' : ch === 'shift' ? '🧾 Закрыта смена · ' : '💬 ') + BARS[bar];
   const body = me.name + ': ' + (text ? text.slice(0, 150) : hasPhoto ? 'фото' : '');

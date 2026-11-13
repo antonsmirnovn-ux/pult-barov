@@ -133,7 +133,7 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 <input type="file" id="cam" accept="image/*" capture="environment" hidden>
 <script>
 "use strict";
-const APP_VERSION = "3";
+const APP_VERSION = "4";
 const CFG = self.CHAT_CFG || {};
 const API = CFG.api;
 const BARS = {"13":"13шка", epo:"ЕпО"};
@@ -366,7 +366,7 @@ async function postMsg(m){
 function renderMore(){
   const f=$("feed"); const push=pushState();
   let h='<div class="page">';
-  h+='<div class="grp"><div class="row"><span class="l"><b>'+esc(st.me.name)+'</b></span><span class="r">'+st.me.bars.map(b=>BARS[b]).join(" · ")+(st.me.admin?" · админ":"")+'</span></div></div>';
+  h+='<div class="grp"><div class="row"><span class="l"><b>'+esc(st.me.name)+'</b></span><span class="r">'+st.me.bars.map(b=>BARS[b]).join(" · ")+(st.me.admin?" · админ":st.me.helper?" · помощник":"")+'</span></div></div>';
   h+='<div class="cap">Уведомления</div><div class="grp">';
   if(push==="ios") h+='<div class="row"><span class="l">Чтобы приходили уведомления: «Поделиться» → «На экран Домой», затем откройте чат с иконки.</span></div>';
   else if(push==="nocfg") h+='<div class="row"><span class="l">Уведомления ещё не настроены на сервере.</span></div>';
@@ -390,12 +390,13 @@ function renderUsers(){
   let h='<div class="page"><div class="grp"><button class="row" data-a="back">‹ Назад</button></div>';
   ["13","epo"].forEach(b=>{
     const list=st.users.filter(u=>u.bars.indexOf(b)>=0);
-    h+='<div class="cap">'+BARS[b]+'</div><div class="grp">'+(list.length?list.map(u=>'<button class="row" data-uid="'+u.id+'"><span class="l">'+esc(u.name)+(u.admin?' <span class="r">· админ</span>':'')+'</span><span class="r">PIN '+esc(u.pin)+' ›</span></button>').join(""):'<div class="row"><span class="l r">Пока никого</span></div>')+'</div>';
+    h+='<div class="cap">'+BARS[b]+'</div><div class="grp">'+(list.length?list.map(u=>'<button class="row" data-uid="'+u.id+'"><span class="l">'+esc(u.name)+(u.admin?' <span class="r">· админ</span>':u.helper?' <span class="r">· помощник</span>':'')+'</span><span class="r">PIN '+esc(u.pin)+' ›</span></button>').join(""):'<div class="row"><span class="l r">Пока никого</span></div>')+'</div>';
   });
   h+='<div class="grp"><button class="row act" data-a="uadd">+ Добавить сотрудника</button></div>';
-  h+='<div class="note" style="margin-top:0">Сотрудник входит по своему PIN. Админы видят оба бара и получают уведомления о закрытии смен и решённых проблемах.</div></div>';
+  h+='<div class="note" style="margin-top:0">Сотрудник входит по своему PIN. Помощник и админ получают уведомления о закрытии смен и решённых проблемах. Только админ управляет сотрудниками и видит PIN-коды.</div></div>';
   f.innerHTML=h;
 }
+function roleOf(u){ return u.admin?"admin":u.helper?"helper":"staff"; }
 function userForm(u){
   return '<div class="page"><div class="grp"><button class="row" data-a="ucancel">‹ Отмена</button></div>'+
     '<form id="uform"><div class="grp">'+
@@ -404,7 +405,8 @@ function userForm(u){
     '<div class="cap">Бар</div><div class="grp">'+
     '<label class="row"><span class="l">13шка</span><input class="chk" type="checkbox" name="b13"'+(u.bars&&u.bars.indexOf("13")>=0?" checked":"")+'></label>'+
     '<label class="row"><span class="l">ЕпО</span><input class="chk" type="checkbox" name="bepo"'+(u.bars&&u.bars.indexOf("epo")>=0?" checked":"")+'></label>'+
-    '<label class="row"><span class="l">Админ</span><input class="chk" type="checkbox" name="admin"'+(u.admin?" checked":"")+'></label></div>'+
+    '</div><div class="cap">Роль</div><div class="grp">'+
+    [["staff","Сотрудник","чаты своего бара"],["helper","Помощник","+ уведомления о сменах и решённых проблемах"],["admin","Админ","+ управление сотрудниками и PIN-кодами"]].map(([v,t,d])=>'<label class="row"><span class="l">'+t+'<br><span class="r" style="font-size:13px">'+d+'</span></span><input class="chk" type="radio" name="role" value="'+v+'"'+(roleOf(u)===v?" checked":"")+'></label>').join("")+'</div>'+
     '<div class="err" id="uerr"></div>'+
     '<div class="grp"><button class="row act" type="submit"><b>Сохранить</b></button></div>'+
     (u.id&&u.id!==st.me.id?'<div class="grp"><button class="row del" type="button" data-a="udel">Удалить сотрудника</button></div>':'')+
@@ -461,7 +463,7 @@ document.addEventListener("click",async e=>{
   else if(a==="pushtest"){ try{ await call("push_test"); toast("Отправлено — проверьте уведомление"); }catch(err){ toast(err.message); } }
   else if(a==="users"){ st.view="users"; st.users=null; st.edit=null; render(); loadUsers(); }
   else if(a==="back"){ st.view="more"; render(); }
-  else if(a==="uadd"){ st.edit={name:"",pin:"",bars:[st.bar],admin:false}; renderUsers(); }
+  else if(a==="uadd"){ st.edit={name:"",pin:"",bars:[st.bar],admin:false,helper:false}; renderUsers(); }
   else if(a==="ucancel"){ st.edit=null; renderUsers(); }
   else if(a==="udel"){ if(!confirm("Удалить «"+st.edit.name+"»? Он больше не сможет войти.")) return; try{ st.users=await call("user_del",{id:st.edit.id}); st.edit=null; renderUsers(); }catch(err){ toast(err.message); } }
 });
@@ -476,7 +478,7 @@ document.addEventListener("submit",async e=>{
   if(e.target.id==="uform"){
     const f=e.target, bars=[]; if(f.b13.checked) bars.push("13"); if(f.bepo.checked) bars.push("epo");
     if(!bars.length){ $("uerr").textContent="Выберите хотя бы один бар"; return; }
-    try{ st.users=await call("user_save",{user:{id:st.edit.id,name:f.name.value,pin:f.pin.value,bars,admin:f.admin.checked}}); st.edit=null; renderUsers(); toast("Сохранено"); }
+    try{ const role=(f.querySelector('input[name=role]:checked')||{}).value||"staff"; st.users=await call("user_save",{user:{id:st.edit.id,name:f.name.value,pin:f.pin.value,bars,role}}); st.edit=null; renderUsers(); toast("Сохранено"); }
     catch(err){ $("uerr").textContent=err.message; }
   }
 });
