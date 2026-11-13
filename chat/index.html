@@ -123,6 +123,691 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 .dpick input{position:absolute;inset:0;opacity:0;width:100%}
 .bday{font-weight:600;margin:0 2px 8px;font-size:15px}
 .hall{position:relative;width:100%;background:var(--cell);border-radius:14px;overflow:hidden;margin-bottom:22px}
+.tb{position:absolute;border-radius:8px;border:1.5px solid #15803D;background:#6EDC8C;color:#000;padding:0;overflow:hidden;font-size:11px;line-height:1.15;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;white-space:nowrap}
+.tb.round{border-radius:50%;align-items:center;justify-content:center;text-align:center}
+.tb.busy{border-color:#C8102E;background:#FF8A9B}
+.tb .n{display:flex;justify-content:space-between;gap:4px;font-weight:700}
+.tb .n span{font-weight:500;opacity:.7}
+.tb .bt{font-weight:700;font-size:10.5px;letter-spacing:-.5px}
+.tb .bn{overflow:hidden;text-overflow:ellipsis;word-break:break-word}
+.deco{position:absolute;background:var(--sep)}
+.hl{position:absolute;font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+.bkrow .tm2{font-weight:700;min-width:48px}
+.sheet-bg{position:fixed;inset:0;background:var(--dim);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--bg);width:100%;max-width:680px;border-radius:16px 16px 0 0;padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:90vh;overflow-y:auto}
+.sheet h3{margin:4px 0 12px;font-size:20px}
+.row input[type=time],.row input[type=number]{flex:1;border:0;outline:none;background:none;text-align:right;min-width:0}
+.zpmain{padding:0;overflow:hidden}
+.zpmain iframe{width:100%;height:100%;border:0;display:block;background:var(--bg)}
+
+/* вход */
+.login{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;gap:16px;text-align:center}
+.login img{width:84px;height:84px;border-radius:20px}
+.login h2{margin:0;font-size:26px}
+.login p{margin:0;color:var(--muted);font-size:15px}
+.login input{width:200px;text-align:center;font-size:30px;letter-spacing:.3em;padding:10px;border-radius:12px;border:1px solid var(--sep);background:var(--cell);outline:none}
+.login .bigbtn{flex:none;width:200px}
+
+/* просмотр фото, тосты */
+.viewer{position:fixed;inset:0;background:#000;z-index:50;display:flex;align-items:center;justify-content:center}
+.viewer img{max-width:100%;max-height:100%;object-fit:contain}
+.viewer button{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:14px;color:#fff;font-size:17px;background:rgba(255,255,255,.18);padding:6px 14px;border-radius:16px}
+.toast{position:fixed;left:50%;bottom:calc(150px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(30,30,30,.92);color:#fff;padding:10px 16px;border-radius:14px;font-size:15px;z-index:60;max-width:88%;text-align:center}
+.hint{background:var(--accent-soft);color:var(--ink);border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<input type="file" id="file" accept="image/*" hidden>
+<input type="file" id="cam" accept="image/*" capture="environment" hidden>
+<script>
+"use strict";
+const APP_VERSION = "8";
+const CFG = self.CHAT_CFG || {};
+const API = CFG.api;
+const BARS = {"13":"13шка", epo:"ЕпО"};
+const CHS = [["prob","Проблемы"],["ask","Вопросы"],["shift","Смены"]];
+const IC = {
+  prob:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  ask:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/></svg>',
+  shift:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 15h3"/></svg>',
+  zp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20M6 15h4"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  cam:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
+  clip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
+  send:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+};
+
+/* ---------- хранилище ---------- */
+const ls = { get(k,d){ try{ const v=localStorage.getItem("chat-"+k); return v==null?d:JSON.parse(v);}catch(_){return d;} },
+             set(k,v){ try{ localStorage.setItem("chat-"+k,JSON.stringify(v)); }catch(_){} } };
+const st = {
+  token: ls.get("token",""), me: ls.get("me",null), ver: 0,
+  msgs: new Map(), bar: ls.get("bar","13"), ch: ls.get("ch","prob"), view: "chat",
+  seen: ls.get("seen",{}), people: [], online: true, draft: {}, photo: null, users: null, edit: null, err: ""
+};
+(ls.get("cache",[])||[]).forEach(m=>st.msgs.set(m.id,m));
+st.ver = ls.get("ver",0);
+
+const esc = s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $ = id=>document.getElementById(id);
+const pad = n=>String(n).padStart(2,"0");
+function toast(t){ const d=document.createElement("div"); d.className="toast"; d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.remove(),2600); }
+function plural(n,a,b,c){ n=Math.abs(n)%100; const k=n%10; return n>10&&n<20?c:k>1&&k<5?b:k===1?a:c; }
+
+/* ---------- сервер ---------- */
+async function call(op, body){
+  if(!API) throw new Error("Приложение ещё не подключено к серверу");
+  const r = await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(Object.assign({op,token:st.token},body||{})),redirect:"follow"});
+  const j = await r.json();
+  if(!j.ok){
+    if(j.error==="auth"){ logout(true); }
+    throw new Error(({bad_pin:"Неверный PIN",auth:"Вход сброшен — войдите заново",forbidden:"Нет доступа"})[j.error]||j.error);
+  }
+  return j.data;
+}
+
+let syncing=false, firstSync=true;
+async function sync(){
+  if(!st.token||syncing) return;
+  syncing=true;
+  try{
+    const d = await call("sync",{since:st.ver,withUsers:firstSync});
+    firstSync=false;
+    st.me=d.me; ls.set("me",d.me);
+    if(d.people) st.people=d.people;
+    if(st.me.bars.indexOf(st.bar)<0){ st.bar=st.me.bars[0]; }
+    let fresh=false;
+    d.msgs.forEach(m=>{ st.msgs.set(m.id,m); fresh=true; });
+    // новый вход: старое не считаем непрочитанным
+    if(!Object.keys(st.seen).length&&d.msgs.length){ d.msgs.forEach(m=>{ const k=key(m.bar,m.ch); st.seen[k]=Math.max(st.seen[k]||0,m.id); }); ls.set("seen",st.seen); }
+    if(d.ver) st.ver=Math.max(st.ver,d.ver);
+    setOnline(true);
+    if(fresh){ save(); if(st.view==="chat") renderFeed(true); renderBadges(); }
+  }catch(e){ if(!/Вход сброшен/.test(e.message)) setOnline(false); }
+  finally{ syncing=false; }
+}
+function save(){
+  const arr=[...st.msgs.values()].filter(m=>!m.tmp).sort((a,b)=>a.id-b.id).slice(-600);
+  ls.set("cache",arr); ls.set("ver",st.ver);
+}
+function setOnline(v){ if(st.online===v) return; st.online=v; const n=$("net"); if(n){ n.textContent=v?"":"нет связи"; n.className="net"+(v?"":" off"); } }
+
+/* ---------- непрочитанное ---------- */
+const key=(b,c)=>b+"_"+c;
+function unread(b,c){
+  if(!st.me) return 0;
+  const s=st.seen[key(b,c)]||0; let n=0;
+  for(const m of st.msgs.values()) if(m.bar===b&&m.ch===c&&m.id>s&&m.uid!==st.me.id&&!m.tmp) n++;
+  return n;
+}
+function markSeen(){
+  let mx=0; for(const m of st.msgs.values()) if(m.bar===st.bar&&m.ch===st.ch&&!m.tmp) mx=Math.max(mx,m.id);
+  if(mx>(st.seen[key(st.bar,st.ch)]||0)){ st.seen[key(st.bar,st.ch)]=mx; ls.set("seen",st.seen); renderBadges(); }
+}
+function renderBadges(){
+  if(!st.me) return;
+  CHS.forEach(([c])=>{ const el=document.querySelector('nav [data-ch="'+c+'"] .dot'); if(!el) return; const n=unread(st.bar,c); el.textContent=n; el.hidden=!n; });
+  st.me.bars.forEach(b=>{ const el=document.querySelector('.seg [data-bar="'+b+'"] .dot'); if(!el) return; const n=b===st.bar?0:CHS.reduce((s,[c])=>s+unread(b,c),0); el.textContent=n; el.hidden=!n; });
+  let tot=0; st.me.bars.forEach(b=>CHS.forEach(([c])=>tot+=unread(b,c)));
+  try{ if(navigator.setAppBadge) tot?navigator.setAppBadge(tot):navigator.clearAppBadge(); }catch(_){}
+}
+
+/* ---------- отрисовка ---------- */
+function render(){
+  const app=$("app");
+  if(!st.token||!st.me){ app.innerHTML=loginHtml(); setTimeout(()=>{ const p=$("pin"); p&&p.focus(); },50); return; }
+  const both=st.me.bars.length>1;
+  const title = st.view==="more" ? "Ещё" : st.view==="users" ? "Сотрудники" : st.view==="book" ? "Бронь" : st.view==="zp" ? "Зарплата" : (CHS.find(x=>x[0]===st.ch)||[])[1];
+  const segOn = (st.view==="chat"||st.view==="book")&&both;
+  app.innerHTML =
+    '<header><div class="hrow"><h1>'+esc(title)+((st.view==="chat"||st.view==="book")&&!both?' · '+esc(BARS[st.bar]):'')+'</h1><span id="net" class="net'+(st.online?"":" off")+'">'+(st.online?"":"нет связи")+'</span></div>'+
+    (segOn?'<div class="seg">'+st.me.bars.map(b=>'<button data-bar="'+b+'" class="'+(b===st.bar?"on":"")+'">'+BARS[b]+'<span class="dot" hidden></span></button>').join("")+'</div>':'')+
+    '</header>'+
+    '<main id="feed"'+(st.view==="zp"?' class="zpmain"':'')+'></main>'+
+    (st.view==="chat"?composerHtml():'')+
+    '<nav>'+CHS.map(([c,t])=>'<button data-ch="'+c+'" class="'+(st.view==="chat"&&st.ch===c?"on":"")+'">'+IC[c]+t+'<span class="dot" hidden></span></button>').join("")+
+      '<button data-ch="book" class="'+(st.view==="book"?"on":"")+'">'+IC.book+'Бронь</button>'+
+      (st.me.zp?'<button data-ch="zp" class="'+(st.view==="zp"?"on":"")+'">'+IC.zp+'ЗП</button>':'')+
+      '<button data-ch="more" class="'+(st.view==="more"||st.view==="users"?"on":"")+'">'+IC.more+'Ещё</button></nav>';
+  if(st.view==="chat") renderFeed(false, true); else if(st.view==="more") renderMore(); else if(st.view==="book") renderBook(); else if(st.view==="zp") renderZp(); else renderUsers();
+  renderBadges();
+}
+
+function loginHtml(){
+  return '<div class="login"><img src="icon-192.png" alt=""><h2>Рабочий чат</h2><p>13шка · Ещё по одной</p>'+
+    (API?'<form id="loginF"><p style="margin-bottom:12px">Введите свой PIN</p><input id="pin" type="tel" inputmode="numeric" autocomplete="one-time-code" maxlength="8"><div class="err" id="lerr" style="margin:10px 0 0">'+esc(st.err)+'</div><button class="bigbtn" type="submit" style="margin-top:12px">Войти</button></form>'
+        :'<p>Сервер ещё не подключён.</p>')+'</div>';
+}
+
+function composerHtml(){
+  const pv = st.photo ? '<div class="prevw"><img src="'+st.photo+'" alt=""><span>'+(st.ch==="shift"?"Фото чека":"Фото")+'</span><button data-a="unphoto">Убрать</button></div>' : '';
+  if(st.ch==="shift" && !st.photo)
+    return '<div class="composer"><button class="bigbtn" data-a="cam">'+IC.cam+'Закрыть смену — фото чека</button></div>';
+  const ph = st.ch==="prob" ? "Опишите проблему…" : st.ch==="shift" ? "Комментарий (необязательно)" : "Сообщение";
+  return pv+'<div class="composer">'+(st.ch==="shift"?'':'<button class="ib" data-a="pick" aria-label="Фото">'+IC.clip+'</button>')+
+    '<textarea id="txt" rows="1" placeholder="'+ph+'" enterkeyhint="send">'+esc(st.draft[key(st.bar,st.ch)]||"")+'</textarea>'+
+    '<button class="ib send" data-a="send" aria-label="Отправить">'+IC.send+'</button></div>';
+}
+
+const fmtDay = d=>{ const t=new Date(); const y=new Date(); y.setDate(t.getDate()-1);
+  if(d.toDateString()===t.toDateString()) return "Сегодня"; if(d.toDateString()===y.toDateString()) return "Вчера";
+  return d.toLocaleDateString("ru-RU",{day:"numeric",month:"long",weekday:"short"}); };
+const fmtTime = d=>pad(d.getHours())+":"+pad(d.getMinutes());
+
+function statusChip(m){
+  if(m.tmp) return '<span class="st">Отправка…</span>';
+  const created = (()=>{ const d=new Date(m.ts); return pad(d.getDate())+"."+pad(d.getMonth()+1); })();
+  if(m.status==="done") return '<span class="st done">✓ Решено</span>';
+  if(m.status==="skip") return '<span class="st skip">Не нужно</span>';
+  if(m.status==="gone") return '<span class="st gone">Убрано из дел</span>';
+  if(m.note && m.note!==created) return '<span class="st moved">Перенесено на '+esc(m.note)+'</span>';
+  return '<span class="st open">В списке дел</span>';
+}
+function probClass(m){ if(m.tmp) return ""; if(m.status==="done"||m.status==="skip"||m.status==="gone") return m.status; return ""; }
+
+function renderFeed(keepPos, toBottom){
+  const f=$("feed"); if(!f) return;
+  const nearBottom = f.scrollHeight - f.scrollTop - f.clientHeight < 120;
+  const list=[...st.msgs.values()].filter(m=>m.bar===st.bar&&m.ch===st.ch).sort((a,b)=>(a.tmp?1e12:a.id)-(b.tmp?1e12:b.id)||a.ts.localeCompare(b.ts));
+  if(!list.length){
+    f.innerHTML='<div class="empty">'+(st.ch==="prob"?"<b>Проблем пока нет</b>Опишите проблему — она сразу попадёт в список дел помощника, а статус будет виден здесь.":
+      st.ch==="shift"?"<b>Закрытий пока нет</b>После смены нажмите кнопку внизу и сфотографируйте чек.":"<b>Пока тихо</b>Здесь рабочие вопросы по бару.")+'</div>';
+    return;
+  }
+  let h="", lastDay="";
+  list.forEach(m=>{
+    const d=new Date(m.ts), dk=d.toDateString();
+    if(dk!==lastDay){ h+='<div class="day"><span>'+esc(fmtDay(d))+'</span></div>'; lastDay=dk; }
+    const mine=st.me&&m.uid===st.me.id;
+    const cls="m"+(mine?" me":"")+(m.ch==="prob"?" prob "+probClass(m):"")+(m.ch==="shift"?" shiftc":"")+(m.tmp?" pend":"")+(m.fail?" fail":"");
+    h+='<div class="'+cls+'" data-id="'+m.id+'"><div class="b">'+
+      (!mine?'<div class="who">'+esc(m.name)+'</div>':'')+
+      (m.ch==="shift"?'<div class="who" style="color:var(--ink)">🧾 Закрытие смены'+(mine?'':'')+'</div>':'')+
+      (m.photo?'<a class="ph" data-ph="'+esc(m.photo)+'"><div class="ld">Загрузка фото…</div></a>':(m.localPhoto?'<a class="ph"><img src="'+m.localPhoto+'" alt=""></a>':''))+
+      (m.text?'<div class="tx">'+esc(m.text)+'</div>':'')+
+      (m.ch==="prob"?statusChip(m):'')+
+      '<div class="tm">'+(m.fail?'Не отправлено — нажмите, чтобы повторить':fmtTime(d))+'</div></div></div>';
+  });
+  f.innerHTML=h;
+  loadPhotos();
+  if(toBottom||nearBottom||!keepPos) f.scrollTop=f.scrollHeight;
+  markSeen();
+}
+
+/* ---------- фото ---------- */
+const photoMem=new Map();
+let io=null;
+function loadPhotos(){
+  if(!io) io=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ io.unobserve(e.target); showPhoto(e.target); } }),{root:$("feed"),rootMargin:"400px"});
+  else io.disconnect(), io=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ io.unobserve(e.target); showPhoto(e.target); } }),{root:$("feed"),rootMargin:"400px"});
+  document.querySelectorAll(".ph[data-ph]").forEach(el=>{ const id=el.dataset.ph; if(photoMem.has(id)) el.innerHTML='<img src="'+photoMem.get(id)+'" alt="">'; else io.observe(el); });
+}
+async function getPhoto(id){
+  if(photoMem.has(id)) return photoMem.get(id);
+  let url=null;
+  try{ const c=await caches.open("chat-photos"); const r=await c.match("p/"+id); if(r){ url=URL.createObjectURL(await r.blob()); } }catch(_){}
+  if(!url){
+    const data=await call("photo",{id});
+    const blob=await (await fetch(data)).blob();
+    try{ const c=await caches.open("chat-photos"); await c.put("p/"+id,new Response(blob)); }catch(_){}
+    url=URL.createObjectURL(blob);
+  }
+  photoMem.set(id,url); return url;
+}
+async function showPhoto(el){
+  try{ const u=await getPhoto(el.dataset.ph); el.innerHTML='<img src="'+u+'" alt="">'; }
+  catch(e){ el.innerHTML='<div class="ld">Фото не загрузилось</div>'; }
+}
+function compress(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(), u=URL.createObjectURL(file);
+    img.onload=()=>{ const max=1600; let w=img.naturalWidth,h=img.naturalHeight; const k=Math.min(1,max/Math.max(w,h)); w=Math.round(w*k); h=Math.round(h*k);
+      const c=document.createElement("canvas"); c.width=w; c.height=h; c.getContext("2d").drawImage(img,0,0,w,h); URL.revokeObjectURL(u); res(c.toDataURL("image/jpeg",0.8)); };
+    img.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error("Не удалось открыть фото")); };
+    img.src=u;
+  });
+}
+function viewer(src){ const d=document.createElement("div"); d.className="viewer"; d.innerHTML='<img src="'+src+'" alt=""><button>Закрыть</button>'; d.onclick=()=>d.remove(); document.body.appendChild(d); }
+
+/* ---------- отправка ---------- */
+let tmpN=0;
+async function send(){
+  const ta=$("txt"); const text=(ta?ta.value:"").trim();
+  if(!text&&!st.photo) return;
+  if(st.ch==="shift"&&!st.photo) return;
+  const m={id:"t"+(++tmpN),tmp:true,ts:new Date().toISOString(),bar:st.bar,ch:st.ch,uid:st.me.id,name:st.me.name,text,localPhoto:st.photo,photoData:st.photo};
+  st.msgs.set(m.id,m); st.draft[key(st.bar,st.ch)]=""; st.photo=null;
+  render(); renderFeed(false,true);
+  postMsg(m);
+}
+async function postMsg(m){
+  m.fail=false;
+  try{
+    const r=await call("post",{bar:m.bar,ch:m.ch,text:m.text,photo:m.photoData||""});
+    st.msgs.delete(m.id);
+    if(m.localPhoto&&r.photo){ photoMem.set(r.photo,m.localPhoto); }
+    st.msgs.set(r.id,r); st.ver=Math.max(st.ver,0); save();
+    if(r.ch==="prob") toast("Добавлено в список дел");
+    if(r.ch==="shift") toast("Смена закрыта, чек сохранён");
+    sync();
+  }catch(e){ m.fail=true; toast(e.message); }
+  if(st.view==="chat") renderFeed(true);
+}
+
+/* ---------- Ещё ---------- */
+function renderMore(){
+  const f=$("feed"); const push=pushState();
+  let h='<div class="page">';
+  h+='<div class="grp"><div class="row"><span class="l"><b>'+esc(st.me.name)+'</b></span><span class="r">'+st.me.bars.map(b=>BARS[b]).join(" · ")+(st.me.admin?" · админ":st.me.helper?" · помощник":"")+'</span></div></div>';
+  h+='<div class="cap">Уведомления</div><div class="grp">';
+  if(push==="ios") h+='<div class="row"><span class="l">Чтобы приходили уведомления: «Поделиться» → «На экран Домой», затем откройте чат с иконки.</span></div>';
+  else if(push==="nocfg") h+='<div class="row"><span class="l">Уведомления ещё не настроены на сервере.</span></div>';
+  else if(push==="unsupported") h+='<div class="row"><span class="l">Этот браузер не поддерживает уведомления.</span></div>';
+  else if(push==="denied") h+='<div class="row"><span class="l">Уведомления запрещены. Разрешите их в настройках телефона для «Рабочий чат».</span></div>';
+  else if(push==="on") h+='<div class="row"><span class="l">Уведомления включены</span><span class="r">✓</span></div><button class="row act" data-a="pushtest">Прислать тестовое</button>';
+  else h+='<button class="row act" data-a="push">Включить уведомления</button>';
+  h+='</div>';
+  if(st.me.admin) h+='<div class="grp"><button class="row act" data-a="users">Сотрудники и PIN-коды</button></div>';
+  h+='<div class="grp"><button class="row del" data-a="logout">Выйти</button></div>';
+  h+='<div class="note" style="margin-top:0">Версия '+APP_VERSION+'. Проблемы попадают в «список дел» Пульта баров, статус обновляется в течение пары минут.</div></div>';
+  f.innerHTML=h;
+}
+
+/* ---------- сотрудники (админ) ---------- */
+async function loadUsers(){ try{ st.users=await call("users"); }catch(e){ toast(e.message); st.users=[]; } if(st.view==="users") renderUsers(); }
+function renderUsers(){
+  const f=$("feed");
+  if(!st.users){ f.innerHTML='<div class="empty">Загрузка…</div>'; return; }
+  if(st.edit){ f.innerHTML=userForm(st.edit); return; }
+  let h='<div class="page"><div class="grp"><button class="row" data-a="back">‹ Назад</button></div>';
+  ["13","epo"].forEach(b=>{
+    const list=st.users.filter(u=>u.bars.indexOf(b)>=0);
+    h+='<div class="cap">'+BARS[b]+'</div><div class="grp">'+(list.length?list.map(u=>'<button class="row" data-uid="'+u.id+'"><span class="l">'+esc(u.name)+(u.admin?' <span class="r">· админ</span>':u.helper?' <span class="r">· помощник</span>':'')+(u.zp?' <span class="r">· ЗП</span>':'')+'</span><span class="r">PIN '+esc(u.pin)+' ›</span></button>').join(""):'<div class="row"><span class="l r">Пока никого</span></div>')+'</div>';
+  });
+  h+='<div class="grp"><button class="row act" data-a="uadd">+ Добавить сотрудника</button></div>';
+  h+='<div class="note" style="margin-top:0">Сотрудник входит по своему PIN. Помощник и админ получают уведомления о решённых проблемах. Только админ управляет сотрудниками и видит PIN-коды.</div></div>';
+  f.innerHTML=h;
+}
+function roleOf(u){ return u.admin?"admin":u.helper?"helper":"staff"; }
+function userForm(u){
+  return '<div class="page"><div class="grp"><button class="row" data-a="ucancel">‹ Отмена</button></div>'+
+    '<form id="uform"><div class="grp">'+
+    '<label class="row"><span>Имя</span><input type="text" name="name" value="'+esc(u.name||"")+'" placeholder="Лера"></label>'+
+    '<label class="row"><span>PIN</span><input type="tel" name="pin" inputmode="numeric" value="'+esc(u.pin||"")+'" placeholder="4–8 цифр"></label></div>'+
+    '<div class="cap">Бар</div><div class="grp">'+
+    '<label class="row"><span class="l">13шка</span><input class="chk" type="checkbox" name="b13"'+(u.bars&&u.bars.indexOf("13")>=0?" checked":"")+'></label>'+
+    '<label class="row"><span class="l">ЕпО</span><input class="chk" type="checkbox" name="bepo"'+(u.bars&&u.bars.indexOf("epo")>=0?" checked":"")+'></label>'+
+    '</div><div class="cap">Роль</div><div class="grp">'+
+    [["staff","Сотрудник","чаты своего бара"],["helper","Помощник","+ уведомления о решённых проблемах"],["admin","Админ","+ управление сотрудниками и PIN-кодами"]].map(([v,t,d])=>'<label class="row"><span class="l">'+t+'<br><span class="r" style="font-size:13px">'+d+'</span></span><input class="chk" type="radio" name="role" value="'+v+'"'+(roleOf(u)===v?" checked":"")+'></label>').join("")+'</div>'+
+    '<div class="grp"><label class="row"><span class="l">Видит зарплату и график<br><span class="r" style="font-size:13px">для барменов; поварам не ставить</span></span><input class="chk" type="checkbox" name="zp"'+(u.zp?" checked":"")+'></label></div>'+
+    '<div class="err" id="uerr"></div>'+
+    '<div class="grp"><button class="row act" type="submit"><b>Сохранить</b></button></div>'+
+    (u.id&&u.id!==st.me.id?'<div class="grp"><button class="row del" type="button" data-a="udel">Удалить сотрудника</button></div>':'')+
+    '</form></div>';
+}
+
+/* ---------- бронь столов ---------- */
+// Схемы залов. Координаты — в единицах рисунка (ширина W, высота H), вид от бара (бар снизу); rot — повернуть на 90°.
+const PLANS={
+  epo:{W:100,H:52,rot:false,
+    tables:[
+      {id:"1",seats:"2–3",x:2.2,y:3,w:9,h:8.6},{id:"2",seats:"2–3",x:1.4,y:16,w:9,h:8.6},{id:"11",seats:"2",x:1,y:29,w:8.4,h:8.4,round:1,label:"Бочка"},
+      {id:"Бар",seats:"1–2",x:0.3,y:43.3,w:33.5,h:7.2},
+      {id:"3",seats:"8",x:36.5,y:3.5,w:9.9,h:19.3},{id:"4",seats:"4",x:38,y:25.3,w:8.8,h:10.2},
+      {id:"5",seats:"6",x:50.6,y:3.4,w:7.6,h:18.1},{id:"6",seats:"6",x:50.6,y:22.4,w:26.7,h:7.4},{id:"10",seats:"8",x:68.3,y:4,w:26.7,h:7.9},
+      {id:"7",seats:"4",x:56.5,y:31.4,w:9,h:9.2},{id:"8",seats:"4",x:72.5,y:31.4,w:9,h:9.2},{id:"9",seats:"4",x:88.9,y:31.4,w:9,h:9.2}],
+    deco:[{x:49.3,y:0.6,w:0.4,h:41.7},{x:55,y:41.6,w:44.5,h:0.4}],
+    labels:[{t:"Вход",x:13,y:0.8}]},
+  "13":{W:100,H:46,rot:false,
+    tables:[
+      {id:"1",seats:"4",x:1.3,y:10.8,w:15.4,h:13},{id:"2",seats:"4",x:23.8,y:10.3,w:14.6,h:12.5},
+      {id:"Бар",seats:"2–3",x:2.5,y:35.4,w:33.3,h:8.9},
+      {id:"3",seats:"8–10",x:48.3,y:9.2,w:14,h:32.9},
+      {id:"4",seats:"4",x:77.8,y:2,w:13.8,h:10.2},{id:"5",seats:"4",x:77.8,y:13.8,w:15,h:14.1},{id:"6",seats:"4",x:79.5,y:30.2,w:14,h:10.3}],
+    deco:[{x:95,y:1.7,w:2.5,h:38.7}],
+    labels:[]}
+};
+function isoDay(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function addDays(iso,n){ const d=new Date(iso+"T12:00:00"); d.setDate(d.getDate()+n); return isoDay(d); }
+st.books=[]; st.bday=isoDay(new Date()); st.bedit=null;
+const WD=["вс","пн","вт","ср","чт","пт","сб"];
+let bookLoading=false;
+async function loadBook(silent){
+  if(!st.me||bookLoading) return; bookLoading=true;
+  const today=isoDay(new Date()), from=addDays(today,-1), to=addDays(today,90);
+  const f=st.bday<from?st.bday:from, t=st.bday>to?st.bday:to, bar=st.bar;
+  try{ const r=await call("book_list",{bar,from:f,to:t}); st.books=st.books.filter(b=>b.bar!==bar).concat(r); if(st.view==="book"&&!$("sheet")) renderBook(); }
+  catch(e){ if(!silent) toast(e.message); }
+  finally{ bookLoading=false; }
+}
+function dayBooks(){ return st.books.filter(b=>b.bar===st.bar&&b.date===st.bday); }
+function renderBook(){
+  const f=$("feed"); if(!f) return;
+  const today=isoDay(new Date()); let chips="";
+  for(let i=0;i<21;i++){ const d=addDays(today,i), dt=new Date(d+"T12:00:00"), has=st.books.some(b=>b.bar===st.bar&&b.date===d);
+    chips+='<button class="dchip'+(d===st.bday?" on":"")+'" data-day="'+d+'">'+(i===0?"сегодня":i===1?"завтра":WD[dt.getDay()])+'<b>'+dt.getDate()+'</b>'+(has?'<i></i>':'')+'</button>'; }
+  chips+='<label class="dpick" aria-label="Другая дата">📅<input type="date" id="bkdate" value="'+st.bday+'"></label>';
+  const dt=new Date(st.bday+"T12:00:00");
+  const list=dayBooks().sort((a,b)=>a.time.localeCompare(b.time));
+  const plan=PLANS[st.bar];
+  let h='<div class="page" style="padding-top:2px"><div class="days">'+chips+'</div>'+
+    '<div class="bday">'+esc(dt.toLocaleDateString("ru-RU",{weekday:"long",day:"numeric",month:"long"}))+' · '+(list.length?list.length+" "+plural(list.length,"бронь","брони","броней"):"броней нет")+'</div>';
+  if(plan) h+=hallHtml(plan,list);
+  else h+='<div class="grp"><div class="row"><span class="l r">Схема зала '+esc(BARS[st.bar])+' ещё не добавлена — брони можно вносить списком.</span></div><button class="row act" data-a="bkadd">+ Добавить бронь</button></div>';
+  h+='<div class="cap">Брони на этот день</div><div class="grp">'+(list.length?list.map(b=>'<button class="row bkrow" data-bk="'+b.id+'"><span class="tm2">'+esc(b.time)+'</span><span class="l">'+esc(tblName(b.tbl))+' · '+esc(b.name)+(b.guests?' · '+esc(b.guests)+' чел.':'')+(b.phone||b.note?'<br><span class="r" style="font-size:13px">'+esc([b.phone,b.note].filter(Boolean).join(" · "))+'</span>':'')+'</span><span class="r">›</span></button>').join(""):'<div class="row"><span class="l r">Пока пусто</span></div>')+'</div>';
+  h+='<div class="note" style="margin-top:-12px">Зелёный — свободен, красный — забронирован. Цифра на столе — число мест. Нажмите на стол, чтобы забронировать или изменить бронь.</div></div>';
+  f.innerHTML=h;
+  const di=$("bkdate"); if(di) di.onchange=()=>{ if(di.value){ st.bday=di.value; renderBook(); loadBook(true); } };
+  const on=f.querySelector(".dchip.on"); if(on) on.scrollIntoView({inline:"center",block:"nearest"});
+}
+function tblName(t){ const pl=PLANS[st.bar], o=pl&&pl.tables.find(x=>x.id===t); if(o&&o.label) return o.label; if(/^\d+$/.test(t)) return o?"стол на "+o.seats:"стол"; return t; }
+function hallHtml(p,list){
+  const W=p.rot?p.H:p.W, H=p.rot?p.W:p.H;
+  const tf=o=>p.rot?{x:p.H-o.y-(o.h||0),y:o.x,w:o.h||0,h:o.w||0}:{x:o.x,y:o.y,w:o.w||0,h:o.h||0};
+  const pos=o=>{ const r=tf(o); return 'left:'+(r.x/W*100)+'%;top:'+(r.y/H*100)+'%;width:'+(r.w/W*100)+'%;height:'+(r.h/H*100)+'%'; };
+  let h='<div class="hall" style="padding-top:'+(H/W*100)+'%">';
+  (p.deco||[]).forEach(d=>h+='<div class="deco" style="'+pos(d)+'"></div>');
+  (p.labels||[]).forEach(l=>{ const r=p.rot?{x:p.H-l.y-6,y:l.x}:{x:l.x,y:l.y}; h+='<div class="hl" style="left:'+(r.x/W*100)+'%;top:'+(r.y/H*100)+'%">'+esc(l.t)+'</div>'; });
+  p.tables.forEach(t=>{ const b=list.find(x=>x.tbl===t.id);
+    h+='<button class="tb'+(t.round?" round":"")+(b?" busy":"")+'" data-tbl="'+esc(t.id)+'" style="'+pos(t)+'">'+
+      ((t.label&&!b)||!/^\d+$/.test(t.id)?'<b>'+esc(t.label||t.id)+'</b>':'')+
+      (b?'<b class="bt">'+esc(b.time)+'</b>':'<span>'+esc(t.seats)+'</span>')+'</button>'; });
+  return h+'</div>';
+}
+function openBooking(tbl){
+  closeSheet();
+  const plan=PLANS[st.bar], t=plan&&plan.tables.find(x=>x.id===tbl);
+  const b=tbl?dayBooks().find(x=>x.tbl===tbl):null;
+  st.bedit=b?Object.assign({},b):{tbl,time:"",guests:"",name:"",phone:"",note:""};
+  const e=st.bedit, dt=new Date(st.bday+"T12:00:00");
+  const bg=document.createElement("div"); bg.className="sheet-bg"; bg.id="sheet";
+  bg.innerHTML='<form class="sheet" id="bkform"><h3>'+(tbl?esc(t&&!t.label&&/^\d+$/.test(tbl)?"Стол":(t&&t.label)||tblName(tbl)):"Новая бронь")+(t?' · на '+esc(t.seats)+' чел.':'')+'</h3>'+
+    '<div style="margin:-8px 0 12px;color:var(--muted);font-size:15px">'+esc(BARS[st.bar])+', '+esc(dt.toLocaleDateString("ru-RU",{weekday:"short",day:"numeric",month:"long"}))+(b&&b.uname?' · внесено: '+esc(b.uname):'')+'</div>'+
+    '<div class="grp">'+(tbl?'':'<label class="row"><span>Стол</span><input type="text" name="tbl" placeholder="номер стола" required></label>')+
+    '<label class="row"><span>Время</span><input type="time" name="time" value="'+esc(e.time)+'" required></label>'+
+    '<label class="row"><span>Гостей</span><input type="number" name="guests" inputmode="numeric" min="1" max="40" value="'+esc(e.guests)+'" placeholder="сколько"></label>'+
+    '<label class="row"><span>Имя</span><input type="text" name="name" value="'+esc(e.name)+'" placeholder="Александр" required></label>'+
+    '<label class="row"><span>Телефон</span><input type="tel" name="phone" value="'+esc(e.phone)+'" placeholder="необязательно"></label>'+
+    '<label class="row"><span>Заметка</span><input type="text" name="note" value="'+esc(e.note)+'" placeholder="необязательно"></label></div>'+
+    '<div class="err" id="bkerr"></div>'+
+    '<div class="grp"><button class="row act" type="submit"><b>'+(b?"Сохранить":"Забронировать")+'</b></button></div>'+
+    (b?'<div class="grp"><button class="row del" type="button" data-a="bkdel">Снять бронь</button></div>':'')+
+    '<div class="grp"><button class="row" type="button" data-a="bkclose">Отмена</button></div></form>';
+  bg.addEventListener("click",ev=>{ if(ev.target===bg) closeSheet(); });
+  document.body.appendChild(bg);
+}
+function closeSheet(){ const s=$("sheet"); if(s) s.remove(); }
+
+/* ---------- зарплата («Моя ЗПшечка») ---------- */
+const ZP_URL="/zarplata-barov/";
+async function renderZp(){
+  const f=$("feed"); f.innerHTML='<div class="empty">Загрузка…</div>';
+  try{
+    const keys=await call("zp_keys");
+    if(st.view!=="zp") return;
+    if(!Object.keys(keys).length){ f.innerHTML='<div class="empty"><b>Зарплата ещё не подключена</b>Пароль бара для «Моей ЗПшечки» пока не настроен.</div>'; return; }
+    let saved={}; try{ saved=JSON.parse(localStorage.getItem("zp-auth-v1"))||{}; }catch(_){}
+    Object.assign(saved,keys); localStorage.setItem("zp-auth-v1",JSON.stringify(saved));
+    if(keys[st.bar]) localStorage.setItem("zp-bar",JSON.stringify(st.bar));
+    f.innerHTML='<iframe src="'+ZP_URL+'?t='+Date.now()+'" title="Моя ЗПшечка"></iframe>';
+  }catch(e){ f.innerHTML='<div class="empty"><b>Не удалось открыть</b>'+esc(e.message)+'</div>'; }
+}
+
+/* ---------- уведомления ---------- */
+const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const standalone=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone;
+function pushState(){
+  if(!(CFG.firebase&&CFG.firebase.apiKey&&CFG.vapidKey)) return "nocfg";
+  if(isIOS&&!standalone) return "ios";
+  if(!("Notification" in window)||!("serviceWorker" in navigator)) return "unsupported";
+  if(Notification.permission==="denied") return "denied";
+  if(Notification.permission==="granted"&&ls.get("push",false)) return "on";
+  return "off";
+}
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=()=>rej(new Error("Не загрузился "+src)); document.head.appendChild(s); }); }
+let fbReady=null;
+function firebaseInit(){
+  if(!fbReady) fbReady=(async()=>{
+    const FB="https://www.gstatic.com/firebasejs/10.12.2/";
+    await loadScript(FB+"firebase-app-compat.js"); await loadScript(FB+"firebase-messaging-compat.js");
+    if(!firebase.apps.length) firebase.initializeApp(CFG.firebase);
+    const m=firebase.messaging(); m.onMessage(()=>sync()); return m;
+  })();
+  return fbReady;
+}
+async function registerPush(ask){
+  if(ask){ const p=await Notification.requestPermission(); if(p!=="granted") throw new Error("Уведомления не разрешены"); }
+  const m=await firebaseInit(); const reg=await navigator.serviceWorker.ready;
+  const t=await m.getToken({vapidKey:CFG.vapidKey,serviceWorkerRegistration:reg});
+  if(!t) throw new Error("Не удалось получить токен уведомлений");
+  if(ask||ls.get("pushTok","")!==t){ await call("push_reg",{fcm:t}); ls.set("pushTok",t); }
+  ls.set("push",true);
+}
+
+/* ---------- события ---------- */
+document.addEventListener("click",async e=>{
+  const t=e.target.closest("[data-a],[data-ch],[data-bar],[data-uid],[data-tbl],[data-day],[data-bk],.ph,.m.fail");
+  if(!t) return;
+  if(t.dataset.bar){ st.bar=t.dataset.bar; ls.set("bar",st.bar); st.photo=null; render(); if(st.view==="book") loadBook(); return; }
+  if(t.dataset.ch){ if(t.dataset.ch==="more"||t.dataset.ch==="book"||t.dataset.ch==="zp"){ st.view=t.dataset.ch; if(st.view==="book") loadBook(); } else { st.view="chat"; st.ch=t.dataset.ch; ls.set("ch",st.ch); st.photo=null; } st.edit=null; render(); return; }
+  if(t.dataset.day){ st.bday=t.dataset.day; renderBook(); return; }
+  if(t.dataset.tbl){ openBooking(t.dataset.tbl); return; }
+  if(t.dataset.bk){ const b=st.books.find(x=>String(x.id)===t.dataset.bk); if(b) openBooking(b.tbl); return; }
+  if(t.dataset.uid){ st.edit=Object.assign({},st.users.find(u=>u.id===+t.dataset.uid)); renderUsers(); return; }
+  if(t.classList.contains("ph")){ const img=t.querySelector("img"); if(img) viewer(img.src); return; }
+  if(t.classList.contains("fail")){ const m=st.msgs.get(t.dataset.id); if(m){ m.fail=false; renderFeed(true); postMsg(m);} return; }
+  const a=t.dataset.a;
+  if(a==="send") send();
+  else if(a==="pick") $("file").click();
+  else if(a==="cam") $("cam").click();
+  else if(a==="unphoto"){ st.photo=null; render(); }
+  else if(a==="bkadd"){ openBooking(""); }
+  else if(a==="bkclose"){ closeSheet(); }
+  else if(a==="bkdel"){ const b=st.bedit; if(!b||!b.id) return; if(!confirm("Снять бронь «"+b.name+"»?")) return;
+    try{ await call("book_del",{id:b.id,bar:st.bar}); st.books=st.books.filter(x=>x.id!==b.id); closeSheet(); renderBook(); toast("Бронь снята"); }catch(err){ toast(err.message); } }
+  else if(a==="logout"){ if(confirm("Выйти из чата на этом телефоне?")) logout(); }
+  else if(a==="push"){ try{ await registerPush(true); toast("Уведомления включены"); }catch(err){ toast(err.message); } renderMore(); }
+  else if(a==="pushtest"){ try{ await call("push_test"); toast("Отправлено — проверьте уведомление"); }catch(err){ toast(err.message); } }
+  else if(a==="users"){ st.view="users"; st.users=null; st.edit=null; render(); loadUsers(); }
+  else if(a==="back"){ st.view="more"; render(); }
+  else if(a==="uadd"){ st.edit={name:"",pin:"",bars:[st.bar],admin:false,helper:false}; renderUsers(); }
+  else if(a==="ucancel"){ st.edit=null; renderUsers(); }
+  else if(a==="udel"){ if(!confirm("Удалить «"+st.edit.name+"»? Он больше не сможет войти.")) return; try{ st.users=await call("user_del",{id:st.edit.id}); st.edit=null; renderUsers(); }catch(err){ toast(err.message); } }
+});
+document.addEventListener("submit",async e=>{
+  e.preventDefault();
+  if(e.target.id==="loginF"){
+    const pin=$("pin").value.trim(); if(!pin) return;
+    try{ const r=await call("login",{pin}); st.token=r.token; st.me=r.me; st.err=""; ls.set("token",r.token); ls.set("me",r.me);
+      if(r.me.bars.indexOf(st.bar)<0) st.bar=r.me.bars[0]; st.view="chat"; firstSync=true; render(); sync(); }
+    catch(err){ st.err=err.message; render(); }
+  }
+  if(e.target.id==="bkform"){
+    const f=e.target, b=st.bedit;
+    const book={id:b.id||0,bar:st.bar,date:st.bday,tbl:(f.tbl?f.tbl.value:b.tbl).trim(),time:f.time.value,guests:f.guests.value,name:f.name.value,phone:f.phone.value,note:f.note.value};
+    const btn=f.querySelector("button[type=submit]"); btn.disabled=true;
+    try{ const r=await call("book_save",{book}); st.books=st.books.filter(x=>x.id!==r.id); st.books.push(r); closeSheet(); renderBook(); toast(b.id?"Бронь изменена":"Стол забронирован"); }
+    catch(err){ $("bkerr").textContent=err.message; btn.disabled=false; }
+    return;
+  }
+  if(e.target.id==="uform"){
+    const f=e.target, bars=[]; if(f.b13.checked) bars.push("13"); if(f.bepo.checked) bars.push("epo");
+    if(!bars.length){ $("uerr").textContent="Выберите хотя бы один бар"; return; }
+    try{ const role=(f.querySelector('input[name=role]:checked')||{}).value||"staff"; st.users=await call("user_save",{user:{id:st.edit.id,name:f.name.value,pin:f.pin.value,bars,role,zp:f.zp.checked}}); st.edit=null; renderUsers(); toast("Сохранено"); }
+    catch(err){ $("uerr").textContent=err.message; }
+  }
+});
+document.addEventListener("input",e=>{
+  if(e.target.id==="txt"){ st.draft[key(st.bar,st.ch)]=e.target.value; e.target.style.height="auto"; e.target.style.height=Math.min(140,e.target.scrollHeight)+"px"; }
+});
+document.addEventListener("keydown",e=>{
+  if(e.target.id==="txt"&&e.key==="Enter"&&!e.shiftKey&&!/Mobi|iP(hone|ad)/.test(navigator.userAgent)){ e.preventDefault(); send(); }
+});
+["file","cam"].forEach(id=>$(id).addEventListener("change",async e=>{
+  const file=e.target.files&&e.target.files[0]; e.target.value=""; if(!file) return;
+  try{ st.photo=await compress(file); render(); const ta=$("txt"); ta&&ta.focus(); }catch(err){ toast(err.message); }
+}));
+
+function logout(silent){
+  st.token=""; st.me=null; st.msgs.clear(); st.ver=0; st.seen={};
+  ["token","me","cache","ver","seen","push","pushTok"].forEach(k=>{ try{ localStorage.removeItem("chat-"+k); }catch(_){} });
+  if(silent) st.err="Вход сброшен — войдите заново";
+  render();
+}
+
+function openLink(h){
+  const m=/#(prob|ask|shift|book)-(13|epo)/.exec(h||""); if(!m||!st.me) return;
+  if(st.me.bars.indexOf(m[2])>=0){ st.bar=m[2]; ls.set("bar",st.bar);
+    if(m[1]==="book"){ st.view="book"; render(); loadBook(); } else { st.ch=m[1]; st.view="chat"; ls.set("ch",st.ch); render(); } }
+  try{ history.replaceState(null,"",location.pathname); }catch(_){}
+}
+window.addEventListener("hashchange",()=>openLink(location.hash));
+if(navigator.serviceWorker) navigator.serviceWorker.addEventListener("message",e=>{ if(e.data&&e.data.type==="open"){ openLink(e.data.link); sync(); } });
+
+/* ---------- обновление приложения ---------- */
+async function checkVersion(){
+  try{ const t=(await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"")).trim();
+    if(t&&t!==APP_VERSION) location.reload(); }catch(_){}
+}
+
+/* ---------- старт ---------- */
+render();
+openLink(location.hash);
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+if(st.token){ sync(); if(pushState()==="on") registerPush(false).catch(()=>{}); }
+setInterval(()=>{ if(document.visibilityState==="visible") sync(); },7000);
+setInterval(()=>{ if(document.visibilityState==="visible"&&st.view==="book"&&!$("sheet")) loadBook(true); },30000);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ sync(); checkVersion(); } });
+</script>
+</body>
+</html>
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>Рабочий чат</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Рабочий чат">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<script src="config.js"></script>
+<style>
+:root{
+  --bg:#F2F2F7; --cell:#FFFFFF; --ink:#000; --muted:#8A8A8E; --sep:#C6C6C8; --fill:#E9E9EE;
+  --accent:#E08A00; --accent-soft:#FFE7C2; --mine:#FFD9A0;
+  --ok:#2DA44E; --ok-soft:#DDF5E3; --warn-ink:#8A6A00; --warn-soft:#FFF1B8; --bad:#FF3B30; --bad-soft:#FFE5E3; --link:#007AFF;
+  --bar:rgba(249,249,249,.9); --dim:rgba(0,0,0,.4);
+  --f:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#000; --cell:#1C1C1E; --ink:#FFF; --muted:#8D8D93; --sep:#38383A; --fill:#2C2C2E;
+  --accent:#FFA62B; --accent-soft:#3A2A10; --mine:#5A3B0E; --ok:#30D158; --ok-soft:#12301C; --warn-ink:#FFD60A; --warn-soft:#3A3208;
+  --bad:#FF453A; --bad-soft:#3B1715; --link:#0A84FF; --bar:rgba(22,22,24,.9); --dim:rgba(0,0,0,.6); color-scheme:dark}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.3 var(--f);-webkit-text-size-adjust:100%;overscroll-behavior-y:none}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0}
+[hidden]{display:none!important}
+.app{display:flex;flex-direction:column;height:100%;height:100dvh;max-width:680px;margin:0 auto}
+
+/* шапка */
+header{flex:none;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 8px;background:var(--bg);border-bottom:.5px solid var(--sep)}
+.hrow{display:flex;align-items:center;gap:10px;min-height:34px}
+h1{font-size:24px;font-weight:700;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.net{font-size:12px;color:var(--muted)}
+.net.off{color:var(--bad)}
+.seg{display:flex;background:var(--fill);border-radius:9px;padding:2px;margin-top:8px}
+.seg button{flex:1;padding:6px 0;border-radius:7px;font-size:15px;font-weight:600;color:var(--muted);position:relative}
+.seg button.on{background:var(--cell);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.dot{display:inline-block;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:12px;line-height:18px;font-weight:700;text-align:center;margin-left:6px;vertical-align:1px}
+
+/* лента */
+main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 12px 14px}
+.day{text-align:center;margin:14px 0 8px}
+.day span{font-size:12px;font-weight:600;color:var(--muted);background:var(--fill);padding:3px 10px;border-radius:10px}
+.m{display:flex;flex-direction:column;align-items:flex-start;margin:3px 0}
+.m.me{align-items:flex-end}
+.b{max-width:84%;background:var(--cell);border-radius:18px;padding:7px 12px 6px;box-shadow:0 .5px 1px rgba(0,0,0,.08);-webkit-user-select:text;user-select:text}
+.m.me .b{background:var(--mine)}
+.who{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:1px}
+.tx{white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+.tm{font-size:11px;color:var(--muted);text-align:right;margin-top:2px}
+.ph{display:block;margin:4px -6px 2px;border-radius:12px;overflow:hidden;background:var(--fill);min-height:120px;min-width:200px;position:relative}
+.ph img{display:block;width:100%;max-height:340px;object-fit:cover}
+.ph .ld{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;color:var(--muted)}
+.st{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:13px;font-weight:600;padding:3px 9px;border-radius:10px;background:var(--fill);color:var(--muted)}
+.st.open{background:var(--accent-soft);color:var(--accent)}
+.st.moved{background:var(--warn-soft);color:var(--warn-ink)}
+.st.done{background:var(--ok-soft);color:var(--ok)}
+.st.skip,.st.gone{background:var(--fill);color:var(--muted)}
+.prob .b{border-left:4px solid var(--accent)}
+.prob.done .b{border-left-color:var(--ok)}
+.prob.skip .b,.prob.gone .b{border-left-color:var(--sep)}
+.shiftc .b{min-width:230px}
+.empty{text-align:center;color:var(--muted);padding:40px 20px;font-size:15px}
+.empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:6px}
+.pend{opacity:.6}
+.fail .tm{color:var(--bad)}
+
+/* ввод */
+.composer{flex:none;display:flex;align-items:flex-end;gap:8px;padding:8px 10px;background:var(--bar);border-top:.5px solid var(--sep);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+.composer textarea{flex:1;min-height:38px;max-height:140px;resize:none;border:1px solid var(--sep);border-radius:19px;padding:8px 14px;background:var(--cell);outline:none;line-height:1.3}
+.ib{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:var(--accent)}
+.ib svg{width:26px;height:26px}
+.send{background:var(--accent);color:#fff}
+.send svg{width:20px;height:20px}
+.send:disabled{opacity:.35}
+.bigbtn{flex:1;height:46px;border-radius:13px;background:var(--accent);color:#fff;font-weight:600;font-size:17px;display:flex;align-items:center;justify-content:center;gap:8px}
+.bigbtn svg{width:22px;height:22px}
+.prevw{flex:none;padding:8px 10px 0;background:var(--bar);display:flex;align-items:center;gap:10px}
+.prevw img{width:54px;height:54px;object-fit:cover;border-radius:10px}
+.prevw span{flex:1;font-size:14px;color:var(--muted)}
+.prevw button{color:var(--bad);font-size:15px}
+
+/* таб-бар */
+nav{flex:none;display:flex;background:var(--bar);border-top:.5px solid var(--sep);padding-bottom:env(safe-area-inset-bottom,0px);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+nav button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 5px;font-size:10.5px;font-weight:500;color:var(--muted);position:relative}
+nav button.on{color:var(--accent)}
+nav svg{width:26px;height:26px}
+nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
+
+/* списки настроек */
+.page{padding:6px 16px 30px}
+.grp{background:var(--cell);border-radius:12px;overflow:hidden;margin:8px 0 22px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 16px;min-height:46px;border-bottom:.5px solid var(--sep);width:100%;text-align:left}
+.row:last-child{border-bottom:0}
+.row .l{flex:1;min-width:0}
+.row .r{color:var(--muted);font-size:15px}
+.row.act{color:var(--link)}
+.row.del{color:var(--bad)}
+.cap{font-size:13px;color:var(--muted);text-transform:uppercase;margin:0 16px 6px}
+.note{font-size:13px;color:var(--muted);margin:-14px 16px 22px}
+.row input[type=text],.row input[type=tel]{flex:1;border:0;outline:none;background:none;text-align:right}
+.chk{width:22px;height:22px;accent-color:var(--accent)}
+.err{color:var(--bad);font-size:14px;margin:0 16px 12px}
+
+/* бронь */
+.days{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.dchip{flex:none;min-width:52px;padding:6px 4px;border-radius:12px;background:var(--cell);text-align:center;font-size:12px;color:var(--muted);position:relative}
+.dchip b{display:block;font-size:18px;color:var(--ink);line-height:1.2}
+.dchip.on{background:var(--accent);color:#fff}.dchip.on b{color:#fff}
+.dchip i{position:absolute;top:4px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.dchip.on i{background:#fff}
+.dpick{flex:none;display:flex;align-items:center;justify-content:center;min-width:52px;border-radius:12px;background:var(--cell);position:relative;font-size:20px}
+.dpick input{position:absolute;inset:0;opacity:0;width:100%}
+.bday{font-weight:600;margin:0 2px 8px;font-size:15px}
+.hall{position:relative;width:100%;background:var(--cell);border-radius:14px;overflow:hidden;margin-bottom:22px}
 .tb{position:absolute;border-radius:8px;border:2px solid #2DA44E;background:#DDF5E3;color:#000;padding:2px 4px;overflow:hidden;font-size:11px;line-height:1.2;display:flex;flex-direction:column;text-align:left}
 .tb.round{border-radius:50%;align-items:center;justify-content:center;text-align:center}
 .tb.busy{border-color:#D9A400;background:#FFE58A}
