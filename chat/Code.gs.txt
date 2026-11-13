@@ -46,7 +46,6 @@ function setup() {
   Logger.log('Готово. Таблица: ' + ss.getUrl());
 }
 
-/** Вставить JSON сервисного аккаунта Firebase в свойство FCM_SA (Настройки проекта → Свойства скрипта). */
 
 function db_() { return SpreadsheetApp.openById(P.getProperty('DB_ID')); }
 function sh_(n) { return db_().getSheetByName(n); }
@@ -364,18 +363,19 @@ function pushReg_(me, fcm) {
   return true;
 }
 
+const FCM_PROJECT = 'rabochiy-chat'; // проект Firebase
+
 function sendTo_(uids, title, body, link) {
-  const sa = P.getProperty('FCM_SA');
-  if (!sa || !uids.length) return;
-  const cfg = JSON.parse(sa);
+  if (!uids.length) return;
   const s = sh_('push'), rows = rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return uids.indexOf(+r.uid) >= 0 && r.fcm; });
   if (!rows.length) return;
-  const at = fcmAccess_(cfg);
-  const url = 'https://fcm.googleapis.com/v1/projects/' + cfg.project_id + '/messages:send';
+  // Уведомления отправляются от имени владельца скрипта (он владелец проекта Firebase) — без файлов-ключей.
+  const at = ScriptApp.getOAuthToken();
+  const url = 'https://fcm.googleapis.com/v1/projects/' + FCM_PROJECT + '/messages:send';
   const reqs = rows.map(function (r) {
     return {
       url: url, method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + at },
+      headers: { Authorization: 'Bearer ' + at, 'x-goog-user-project': FCM_PROJECT },
       payload: JSON.stringify({ message: {
         token: r.fcm,
         data: { title: title, body: body, link: link },
@@ -388,23 +388,11 @@ function sendTo_(uids, title, body, link) {
   const dead = [];
   res.forEach(function (x, i) {
     const code = x.getResponseCode();
-    if (code === 404 || (code === 400 && /UNREGISTERED|INVALID_ARGUMENT/.test(x.getContentText()))) dead.push(rows[i]._row);
+    if (code === 404 || /UNREGISTERED/.test(x.getContentText())) dead.push(rows[i]._row);
+    else if (code !== 200) console.warn('fcm ' + code + ' ' + x.getContentText().slice(0, 300));
   });
   dead.sort(function (a, b) { return b - a; }).forEach(function (r) { s.deleteRow(r); });
 }
 
-function fcmAccess_(cfg) {
-  const c = CacheService.getScriptCache(), hit = c.get('fcm_at');
-  if (hit) return hit;
-  const now = Math.floor(Date.now() / 1000);
-  const enc = function (o) { return Utilities.base64EncodeWebSafe(JSON.stringify(o)).replace(/=+$/, ''); };
-  const head = enc({ alg: 'RS256', typ: 'JWT' });
-  const claim = enc({ iss: cfg.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging',
-    aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 });
-  const sig = Utilities.base64EncodeWebSafe(Utilities.computeRsaSha256Signature(head + '.' + claim, cfg.private_key)).replace(/=+$/, '');
-  const r = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', { method: 'post',
-    payload: { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: head + '.' + claim + '.' + sig } });
-  const at = JSON.parse(r.getContentText()).access_token;
-  c.put('fcm_at', at, 3000);
-  return at;
-}
+/** Проверка уведомлений из редактора: отправит тест всем админам. */
+function testPush() { sendTo_(adminIds_(), 'Рабочий чат', 'Тест уведомлений', APP_URL); }
