@@ -10,11 +10,13 @@ const DELA_SHEET_ID = '1CxNqSS83GgoHtCjlSD7lNwgetEDh5qSvUzuoDR4Va0w'; // «за�
 const DELA_TAB = 'список дел';
 const TZ = 'Europe/Moscow';
 const BARS = { '13': '13шка', epo: 'ЕпО' };
-const CH = { prob: 'Проблемы', ask: 'Вопросы', shift: 'Смены' };
+const CH = { prob: 'Проблемы', ask: 'Вопросы' };
 const APP_URL = 'https://antonsmirnovn-ux.github.io/pult-barov/chat/';
-const M_COLS = ['id', 'ts', 'upd', 'bar', 'ch', 'uid', 'name', 'text', 'photo', 'tag', 'status', 'note'];
-const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active', 'zp'];
-const B_COLS = ['id', 'bar', 'date', 'tbl', 'time', 'guests', 'name', 'phone', 'note', 'uid', 'uname', 'ts', 'active'];
+const M_COLS = ['id', 'ts', 'upd', 'bar', 'ch', 'uid', 'name', 'text', 'photo', 'tag', 'status', 'note', 'cid'];
+const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active', 'zp', 'mute'];
+const B_COLS = ['id', 'bar', 'date', 'tbl', 'time', 'guests', 'name', 'phone', 'note', 'uid', 'uname', 'ts', 'active', 'deluid', 'delname', 'delts'];
+const DEL_MIN = 15; // своё сообщение можно удалить в течение 15 минут
+const MUTE_KINDS = ['prob', 'ask', 'book']; // какие уведомления можно выключить
 const P = PropertiesService.getScriptProperties();
 
 /* ================= установка ================= */
@@ -38,9 +40,13 @@ function setup() {
   ss.getSheetByName('users').getRange('C:C').setNumberFormat('@');
   ss.getSheetByName('msgs').getRange('H:L').setNumberFormat('@');
   ss.getSheetByName('bookings').getRange('B:I').setNumberFormat('@'); // текст, даты «13.11» и т.п. не превращаются в числа
-  // первый админ — владелец. PIN поменяйте в приложении (Ещё → Сотрудники).
+  // первый админ — владелец. PIN генерируется случайно и печатается в журнал выполнения.
   const u = ss.getSheetByName('users');
-  if (u.getLastRow() < 2) u.appendRow([1, 'Антон', '1313', 'both', true, '', true]);
+  if (u.getLastRow() < 2) {
+    const pin = String(10000000 + Math.floor(Math.random() * 90000000));
+    u.appendRow([1, 'Админ', pin, 'both', true, '', true]);
+    Logger.log('PIN первого админа: ' + pin + ' — смените его в приложении (Ещё → Сотрудники).');
+  }
   folder_();
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'cron') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('cron').timeBased().everyMinutes(5).create();
@@ -49,6 +55,30 @@ function setup() {
   Logger.log('Готово. Таблица: ' + ss.getUrl());
 }
 
+
+/**
+ * Однократно после обновления до версии 5: заголовки новых столбцов и удаление старых записей раздела «Смены».
+ * Фото чеков на Диске не трогает. Повторный запуск безопасен.
+ */
+function migrateV5() {
+  const ss = db_();
+  const need = { msgs: M_COLS, users: U_COLS, bookings: B_COLS };
+  Object.keys(need).forEach(function (n) { ss.getSheetByName(n).getRange(1, 1, 1, need[n].length).setValues([need[n]]); });
+  ss.getSheetByName('msgs').getRange('M:M').setNumberFormat('@');
+  ss.getSheetByName('users').getRange('I:I').setNumberFormat('@');
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  let n = 0;
+  try {
+    const s = ss.getSheetByName('msgs'), last = s.getLastRow();
+    if (last >= 2) {
+      const ch = s.getRange(2, 5, last - 1, 1).getValues();
+      for (let i = ch.length - 1; i >= 0; i--) if (String(ch[i][0]) === 'shift') { s.deleteRow(i + 2); n++; }
+    }
+    verBump_();
+  } finally { lock.releaseLock(); }
+  Logger.log('Удалено записей «Смены»: ' + n);
+  return n;
+}
 
 function db_() { return SpreadsheetApp.openById(P.getProperty('DB_ID')); }
 function sh_(n) { return db_().getSheetByName(n); }
@@ -86,14 +116,17 @@ function route_(b) {
     case 'sync': return sync_(me, b);
     case 'post': return post_(me, b);
     case 'photo': return photo_(me, b.id);
+    case 'del': return delMsg_(me, b.id);
     case 'push_reg': return pushReg_(me, b.fcm);
+    case 'push_unreg': return pushUnreg_(me, b.fcm);
     case 'push_test': sendTo_([me.id], 'Рабочий чат', 'Уведомления работают 👍', APP_URL); return true;
+    case 'mute': return muteSet_(me, b.mute);
     case 'users': admin_(me); return listUsers_(true);
     case 'user_save': admin_(me); return userSave_(me, b.user);
     case 'user_del': admin_(me); return userDel_(b.id);
     case 'book_list': return bookList_(me, b);
     case 'book_save': return bookSave_(me, b.book);
-    case 'book_del': return bookDel_(me, b.id, b.bar);
+    case 'book_del': return bookDel_(me, b.id, b.bar, b.tlabel);
     case 'zp_keys': return zpKeys_(me);
   }
   throw new Error('bad_op');
@@ -113,19 +146,34 @@ function users_() {
   const c = CacheService.getScriptCache(), hit = c.get('users');
   if (hit) return JSON.parse(hit);
   const list = rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; })
-    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, token: String(u.token || ''), _row: u._row }; });
+    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, token: String(u.token || ''), mute: muteOf_(u.mute), _row: u._row }; });
   c.put('users', JSON.stringify(list), 300);
   return list;
 }
 function barsOf_(v) { v = String(v || '').toLowerCase(); return v === 'both' || v === 'оба' ? ['13', 'epo'] : (v.indexOf('epo') >= 0 || v.indexOf('епо') >= 0 ? ['epo'] : ['13']); }
-function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper, zp: u.zp || u.admin }; }
+function muteOf_(v) { return String(v || '').split(',').filter(function (k) { return MUTE_KINDS.indexOf(k) >= 0; }); }
+function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper, zp: u.zp || u.admin, mute: u.mute || [] }; }
 function dropCache_() { CacheService.getScriptCache().remove('users'); }
+
+// Защита от подбора PIN: после 10 неудачных попыток за 15 минут вход закрывается на 15 минут для всех.
+const LOGIN_MAX_FAILS = 10, LOGIN_WINDOW_S = 900;
+function loginFails_() { return +(CacheService.getScriptCache().get('lfail') || 0); }
+function loginFail_() {
+  const c = CacheService.getScriptCache(), lock = LockService.getScriptLock();
+  let n;
+  if (lock.tryLock(3000)) { try { n = loginFails_() + 1; c.put('lfail', String(n), LOGIN_WINDOW_S); } finally { lock.releaseLock(); } }
+  else { n = loginFails_() + 1; c.put('lfail', String(n), LOGIN_WINDOW_S); }
+  if (n === LOGIN_MAX_FAILS) {
+    try { sendTo_(users_().filter(function (u) { return u.admin; }).map(function (u) { return u.id; }), '🔒 Рабочий чат', 'Много неверных PIN подряд — вход закрыт на 15 минут', APP_URL); } catch (e) {}
+  }
+}
 
 function login_(pin) {
   pin = String(pin || '').trim();
   if (!pin) throw new Error('bad_pin');
+  if (loginFails_() >= LOGIN_MAX_FAILS) throw new Error('locked');
   const u = users_().filter(function (x) { return x.pin === pin; })[0];
-  if (!u) { Utilities.sleep(800); throw new Error('bad_pin'); }
+  if (!u) { loginFail_(); Utilities.sleep(1500); throw new Error('bad_pin'); }
   let tok = u.token;
   if (!tok) {
     tok = Utilities.getUuid().replace(/-/g, '');
@@ -202,18 +250,25 @@ function sync_(me, b) {
   vals.forEach(function (v) {
     if (+v[2] <= since) return;
     if (me.bars.indexOf(String(v[3])) < 0) return;
-    if (String(v[4]) === 'shift' && !me.admin && +v[5] !== me.id && !canSeeShifts_(me)) return;
+    if (!CH[String(v[4])]) return; // старые разделы (например, «Смены») не отдаём
     res.msgs.push(msg_(v));
   });
   return res;
 }
-function canSeeShifts_(me) { return true; } // все сотрудники бара видят ленту закрытий; поменять на false, если нужно скрыть
 function msg_(v) {
   const o = {}; M_COLS.forEach(function (c, j) { o[c] = v[j]; });
   o.id = +o.id; o.upd = +o.upd; o.uid = +o.uid;
   o.ts = o.ts instanceof Date ? o.ts.toISOString() : new Date(+o.ts).toISOString();
-  o.photo = String(o.photo || ''); o.text = String(o.text || ''); o.tag = String(o.tag || ''); o.status = String(o.status || ''); o.note = String(o.note || '');
+  o.photo = String(o.photo || ''); o.text = String(o.text || ''); o.tag = String(o.tag || ''); o.status = String(o.status || ''); o.note = String(o.note || ''); o.cid = String(o.cid || '');
+  if (o.status === 'del') { o.text = ''; o.photo = ''; }
   return o;
+}
+
+// Повторная отправка того же сообщения (тот же cid) не создаёт дубль: возвращаем уже сохранённое.
+function findByCid_(s, cid) {
+  if (!cid) return null;
+  const hit = s.getRange(1, M_COLS.indexOf('cid') + 1, s.getMaxRows(), 1).createTextFinder(cid).matchEntireCell(true).findNext();
+  return hit ? s.getRange(hit.getRow(), 1, 1, M_COLS.length).getValues()[0] : null;
 }
 
 function post_(me, b) {
@@ -222,7 +277,8 @@ function post_(me, b) {
   if (!CH[ch]) throw new Error('bad_ch');
   const text = String(b.text || '').trim().slice(0, 2000);
   if (!text && !b.photo) throw new Error('empty');
-  if (ch === 'shift' && !b.photo) throw new Error('Нужно фото чека');
+  const cid = String(b.cid || '').replace(/[^\w-]/g, '').slice(0, 40);
+  if (cid) { const ex = findByCid_(sh_('msgs'), cid); if (ex) return msg_(ex); }
 
   let photoId = '';
   if (b.photo) {
@@ -230,7 +286,7 @@ function post_(me, b) {
     if (!m) throw new Error('bad_photo');
     const now = new Date();
     const f = subFolder_(subFolder_(folder_(), BARS[bar]), Utilities.formatDate(now, TZ, 'yyyy-MM'));
-    const fname = (ch === 'shift' ? 'Чек ' : CH[ch] + ' ') + Utilities.formatDate(now, TZ, 'dd.MM.yyyy HH-mm') + ' ' + me.name + '.jpg';
+    const fname = CH[ch] + ' ' + Utilities.formatDate(now, TZ, 'dd.MM.yyyy HH-mm') + ' ' + me.name + '.jpg';
     photoId = f.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], fname)).getId();
   }
 
@@ -238,6 +294,7 @@ function post_(me, b) {
   let row;
   try {
     const s = sh_('msgs'), last = s.getLastRow();
+    if (cid) { const ex = findByCid_(s, cid); if (ex) return msg_(ex); } // пока ждали блокировку, первая попытка успела сохраниться
     const id = last >= 2 ? (+s.getRange(last, 1).getValue() || last) + 1 : 1;
     const now = new Date(), upd = Math.max(Date.now(), verGet_() + 1);
     let tag = '', status = '', note = '';
@@ -248,7 +305,7 @@ function post_(me, b) {
       addTask_(date, line);
       status = 'open'; note = date;
     }
-    row = [id, now.getTime(), upd, bar, ch, me.id, me.name, text, photoId, tag, status, note];
+    row = [id, now.getTime(), upd, bar, ch, me.id, me.name, text, photoId, tag, status, note, cid];
     s.appendRow(row);
     SpreadsheetApp.flush();
     P.setProperty('VER', String(upd)); CacheService.getScriptCache().put('ver', String(upd), 21600);
@@ -256,6 +313,33 @@ function post_(me, b) {
 
   try { notifyNew_(me, bar, ch, text, !!photoId); } catch (e) { console.warn('push', e); }
   return msg_(row);
+}
+
+/** Удаление своего сообщения в течение DEL_MIN минут. Проблема убирается и из «списка дел». */
+function delMsg_(me, id) {
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let v, r;
+  try {
+    const s = sh_('msgs'), hit = s.getRange('A:A').createTextFinder(String(+id)).matchEntireCell(true).findNext();
+    if (!hit) throw new Error('not_found');
+    r = hit.getRow(); v = s.getRange(r, 1, 1, M_COLS.length).getValues()[0];
+    if (+v[5] !== me.id) throw new Error('forbidden');
+    if (v[10] === 'del') return msg_(v);
+    if (Date.now() - +v[1] > DEL_MIN * 60000) throw new Error('too_late');
+    const upd = Math.max(Date.now(), verGet_() + 1);
+    s.getRange(r, 3).setValue(upd);
+    s.getRange(r, 11).setValue('del');
+    if (String(v[4]) === 'prob' && v[9]) {
+      try {
+        const d = dela_(), f = d.getRange('B:B').createTextFinder('[' + v[9] + ']').findAll();
+        f.forEach(function (c) { d.getRange(c.getRow(), 2, 1, 2).clearContent(); d.getRange(c.getRow(), 2).setBackground('#ffffff'); });
+      } catch (e) { console.warn('dela del', e); }
+    }
+    SpreadsheetApp.flush();
+    P.setProperty('VER', String(upd)); CacheService.getScriptCache().put('ver', String(upd), 21600);
+    v[2] = upd; v[10] = 'del';
+  } finally { lock.releaseLock(); }
+  return msg_(v);
 }
 
 function photo_(me, id) {
@@ -287,12 +371,13 @@ function addTask_(date, text) {
   s.getRange(r, 2).setValue(text).setBackground('#ffffff');
   return r;
 }
+// Цвета «Пульта»: зелёный — решено, жёлтый — «не нужно» или перенос. Любой другой цвет (белый, ручная подсветка) — открыта.
 function colorStatus_(hex) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || ''); if (!m) return 'open';
   const r = parseInt(m[1], 16) / 255, g = parseInt(m[2], 16) / 255, b = parseInt(m[3], 16) / 255;
-  if (r > 0.9 && g > 0.9 && b > 0.9) return 'open';
-  if (g > 0.55 && r < 0.5 && b < 0.6) return 'done';
-  return 'skip';
+  if (g > 0.55 && r < 0.5 && b < 0.6) return 'done';          // зелёный
+  if (r > 0.8 && g > 0.75 && b < 0.45) return 'skip';          // жёлтый
+  return 'open';
 }
 
 function maybeStatuses_() {
@@ -314,13 +399,13 @@ function checkStatuses_() {
     const vals = s.getRange(from, 1, last - from + 1, M_COLS.length).getValues();
     const open = {};
     vals.forEach(function (v, i) {
-      if (String(v[4]) === 'prob' && v[9] && v[10] !== 'done' && v[10] !== 'skip' && v[10] !== 'gone') open[v[9]] = i;
+      if (String(v[4]) === 'prob' && v[9] && ['done', 'skip', 'gone', 'del'].indexOf(String(v[10])) < 0) open[v[9]] = i;
     });
     if (!Object.keys(open).length) return;
 
     const d = dela_(), dl = d.getLastRow();
     if (!dl) return;
-    const df = Math.max(1, dl - 1500 + 1), n = dl - df + 1;
+    const df = 1, n = dl; // читаем весь «список дел»: иначе старые проблемы ошибочно получали «Убрано из дел»
     const dv = d.getRange(df, 1, n, 3).getDisplayValues(), bg = d.getRange(df, 2, n, 1).getBackgrounds();
     const found = {}; let cur = null;
     dv.forEach(function (v, i) {
@@ -346,7 +431,7 @@ function checkStatuses_() {
       changed = true;
       if (st === 'done' || st === 'skip') {
         const txt = String(v[7] || 'см. фото');
-        try { sendTo_([+v[5]].concat(adminIds_()), st === 'done' ? '✅ Решено' : 'Проблема закрыта', BARS[v[3]] + ': ' + txt.slice(0, 120), APP_URL + '#prob-' + v[3]); } catch (e) {}
+        try { sendTo_([+v[5]].concat(adminIds_(String(v[3]))), st === 'done' ? '✅ Решено' : 'Проблема закрыта', BARS[v[3]] + ': ' + txt.slice(0, 120), APP_URL + '#prob-' + v[3]); } catch (e) {}
       }
     });
     if (changed) SpreadsheetApp.flush();
@@ -354,24 +439,47 @@ function checkStatuses_() {
 }
 
 /* ================= уведомления (Firebase Cloud Messaging) ================= */
-function adminIds_() { return users_().filter(function (u) { return u.admin || u.helper; }).map(function (u) { return u.id; }); }
+function adminIds_(bar) { return users_().filter(function (u) { return (u.admin || u.helper) && (!bar || u.bars.indexOf(bar) >= 0); }).map(function (u) { return u.id; }); }
+/** Сотрудники бара, кроме автора, у которых этот вид уведомлений не выключен. */
+function audience_(me, bar, kind) {
+  return users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0 && (u.mute || []).indexOf(kind) < 0; }).map(function (u) { return u.id; });
+}
 
 function notifyNew_(me, bar, ch, text, hasPhoto) {
-  if (ch === 'shift') return; // о закрытии смен уведомления не шлём
-  const users = users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0; });
-  const to = users.filter(function (u) { return ch !== 'shift' || u.admin || u.helper; }).map(function (u) { return u.id; });
+  const to = audience_(me, bar, ch);
   if (!to.length) return;
-  const title = (ch === 'prob' ? '⚠️ Проблема · ' : ch === 'shift' ? '🧾 Закрыта смена · ' : '💬 ') + BARS[bar];
+  const title = (ch === 'prob' ? '⚠️ Проблема · ' : '💬 ') + BARS[bar];
   const body = me.name + ': ' + (text ? text.slice(0, 150) : hasPhoto ? 'фото' : '');
   sendTo_(to, title, body, APP_URL + '#' + ch + '-' + bar);
 }
 
+function muteSet_(me, mute) {
+  const list = (Array.isArray(mute) ? mute : []).filter(function (k) { return MUTE_KINDS.indexOf(k) >= 0; });
+  sh_('users').getRange(me._row, U_COLS.indexOf('mute') + 1).setValue(list.join(','));
+  dropCache_();
+  return list;
+}
+
 function pushReg_(me, fcm) {
   fcm = String(fcm || ''); if (!fcm) return false;
-  const s = sh_('push'), rows = rows_(s, ['uid', 'fcm', 'ts']);
-  const ex = rows.filter(function (r) { return r.fcm === fcm; })[0];
-  if (ex) s.getRange(ex._row, 1, 1, 3).setValues([[me.id, fcm, new Date()]]);
-  else s.appendRow([me.id, fcm, new Date()]);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const s = sh_('push'), rows = rows_(s, ['uid', 'fcm', 'ts']);
+    const ex = rows.filter(function (r) { return r.fcm === fcm; })[0];
+    if (ex) s.getRange(ex._row, 1, 1, 3).setValues([[me.id, fcm, new Date()]]);
+    else s.appendRow([me.id, fcm, new Date()]);
+  } finally { lock.releaseLock(); }
+  return true;
+}
+/** При выходе телефон отвязывается: уведомления этого сотрудника на него больше не приходят. */
+function pushUnreg_(me, fcm) {
+  fcm = String(fcm || ''); if (!fcm) return false;
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const s = sh_('push');
+    rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return r.fcm === fcm && +r.uid === me.id; })
+      .map(function (r) { return r._row; }).sort(function (a, b) { return b - a; }).forEach(function (r) { s.deleteRow(r); });
+  } finally { lock.releaseLock(); }
   return true;
 }
 
@@ -400,10 +508,17 @@ function sendTo_(uids, title, body, link) {
   const dead = [];
   res.forEach(function (x, i) {
     const code = x.getResponseCode();
-    if (code === 404 || /UNREGISTERED/.test(x.getContentText())) dead.push(rows[i]._row);
+    if (code === 404 || /UNREGISTERED/.test(x.getContentText())) dead.push(rows[i].fcm);
     else if (code !== 200) console.warn('fcm ' + code + ' ' + x.getContentText().slice(0, 300));
   });
-  dead.sort(function (a, b) { return b - a; }).forEach(function (r) { s.deleteRow(r); });
+  if (!dead.length) return;
+  // удаляем по самому токену и под блокировкой: номера строк могли сдвинуться, пока шла отправка
+  const lock = LockService.getScriptLock(), held = lock.hasLock();
+  if (!held && !lock.tryLock(10000)) return;
+  try {
+    rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return dead.indexOf(r.fcm) >= 0; })
+      .map(function (r) { return r._row; }).sort(function (a, b) { return b - a; }).forEach(function (r) { s.deleteRow(r); });
+  } finally { if (!held) lock.releaseLock(); }
 }
 
 /** Проверка уведомлений из редактора: отправит тест всем админам. */
@@ -413,7 +528,7 @@ function testPush() { sendTo_(adminIds_(), 'Рабочий чат', 'Тест у
 function bookRows_() { return rows_(sh_('bookings'), B_COLS).filter(function (r) { return r.id !== '' && r.active !== false; }); }
 function bookPub_(r) {
   return { id: +r.id, bar: String(r.bar), date: String(r.date), tbl: String(r.tbl), time: String(r.time), guests: String(r.guests),
-    name: String(r.name), phone: String(r.phone || ''), note: String(r.note || ''), uname: String(r.uname || '') };
+    name: String(r.name), phone: String(r.phone || ''), note: String(r.note || ''), uname: String(r.uname || ''), uid: +r.uid || 0 };
 }
 function bookList_(me, b) {
   const bar = String(b.bar);
@@ -421,25 +536,30 @@ function bookList_(me, b) {
   const from = String(b.from || ''), to = String(b.to || '9999');
   return bookRows_().filter(function (r) { return String(r.bar) === bar && String(r.date) >= from && String(r.date) <= to; }).map(bookPub_);
 }
+function todayIso_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
 function bookSave_(me, x) {
   x = x || {};
   const bar = String(x.bar);
   if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
   const date = String(x.date || ''), tbl = String(x.tbl || '').trim(), time = String(x.time || '').trim();
   const name = String(x.name || '').trim().slice(0, 80), guests = String(x.guests || '').trim().slice(0, 10);
+  const label = String(x.tlabel || '').trim().slice(0, 40) || tableName_(tbl);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Нет даты');
   if (!tbl) throw new Error('Нет стола');
   if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('Время в формате 19:30');
   if (!name) throw new Error('Нужно имя гостя');
+  if (guests && !/^\d{1,3}$/.test(guests)) throw new Error('Гостей — числом');
   const s = sh_('bookings');
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
-  let isNew = false, res;
+  let isNew = false, res, cur = null;
   try {
     const all = bookRows_();
+    cur = x.id ? all.filter(function (r) { return +r.id === +x.id && String(r.bar) === bar; })[0] : null;
+    if (x.id && !cur) throw new Error('Бронь уже снята или изменена — обновите экран');
+    if (date < todayIso_() && (!cur || String(cur.date) !== date)) throw new Error('Нельзя бронировать на прошедшую дату');
     if (all.some(function (r) { return String(r.bar) === bar && String(r.date) === date && String(r.tbl) === tbl && +r.id !== +x.id; }))
       throw new Error('Этот стол на эту дату уже забронирован');
     const vals = [bar, date, tbl, time, guests, name, String(x.phone || '').trim().slice(0, 30), String(x.note || '').trim().slice(0, 200)];
-    const cur = x.id ? all.filter(function (r) { return +r.id === +x.id; })[0] : null;
     if (cur) {
       s.getRange(cur._row, 2, 1, vals.length).setValues([vals]);
       res = bookPub_(rows_(s, B_COLS).filter(function (r) { return +r.id === +x.id; })[0]);
@@ -447,23 +567,37 @@ function bookSave_(me, x) {
       const id = rows_(s, B_COLS).reduce(function (m, r) { return Math.max(m, +r.id || 0); }, 0) + 1;
       s.appendRow([id].concat(vals).concat([me.id, me.name, new Date(), true]));
       isNew = true;
-      res = bookPub_({ id: id, bar: bar, date: date, tbl: tbl, time: time, guests: guests, name: name, phone: vals[6], note: vals[7], uname: me.name });
+      res = bookPub_({ id: id, bar: bar, date: date, tbl: tbl, time: time, guests: guests, name: name, phone: vals[6], note: vals[7], uname: me.name, uid: me.id });
     }
   } finally { lock.releaseLock(); }
-  if (isNew) {
-    try {
-      const to = users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0; }).map(function (u) { return u.id; });
-      const d = date.slice(8) + '.' + date.slice(5, 7);
-      sendTo_(to, '📅 Новая бронь · ' + BARS[bar], d + ', ' + tableName_(tbl) + ', ' + time + (guests ? ', ' + guests + ' чел.' : '') + ' — ' + name, APP_URL + '#book-' + bar);
-    } catch (e) { console.warn('push', e); }
-  }
+  try {
+    const d = date.slice(8) + '.' + date.slice(5, 7);
+    const line = d + ', ' + label + ', ' + time + (guests ? ', ' + guests + ' чел.' : '') + ' — ' + name;
+    if (isNew) sendTo_(audience_(me, bar, 'book'), '📅 Новая бронь · ' + BARS[bar], line, APP_URL + '#book-' + bar);
+    else if (cur && +cur.uid && +cur.uid !== me.id) sendTo_([+cur.uid], '✏️ Бронь изменена · ' + BARS[bar], me.name + ': ' + line, APP_URL + '#book-' + bar);
+  } catch (e) { console.warn('push', e); }
   return res;
 }
-function tableName_(t) { return /^\d+$/.test(t) ? 'стол ' + t : t; }
-function bookDel_(me, id, bar) {
+function tableName_(t) { return /^\d+$/.test(t) ? 'стол' : t; }
+/** Снятие брони: запись остаётся в таблице с отметкой, кто и когда снял; автору брони приходит уведомление. */
+function bookDel_(me, id, bar, tlabel) {
   if (me.bars.indexOf(String(bar)) < 0) throw new Error('forbidden');
-  const s = sh_('bookings'), r = bookRows_().filter(function (x) { return +x.id === +id && String(x.bar) === String(bar); })[0];
-  if (r) s.getRange(r._row, B_COLS.indexOf('active') + 1).setValue(false);
+  const s = sh_('bookings');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let r;
+  try {
+    r = bookRows_().filter(function (x) { return +x.id === +id && String(x.bar) === String(bar); })[0];
+    if (r) {
+      s.getRange(r._row, B_COLS.indexOf('active') + 1).setValue(false);
+      s.getRange(r._row, B_COLS.indexOf('deluid') + 1, 1, 3).setValues([[me.id, me.name, new Date()]]);
+    }
+  } finally { lock.releaseLock(); }
+  if (r && +r.uid && +r.uid !== me.id) {
+    try {
+      const d = String(r.date).slice(8) + '.' + String(r.date).slice(5, 7);
+      sendTo_([+r.uid], '🗑 Бронь снята · ' + BARS[bar], me.name + ': ' + d + ', ' + (String(tlabel || '') || tableName_(String(r.tbl))) + ', ' + r.time + ' — ' + r.name, APP_URL + '#book-' + bar);
+    } catch (e) { console.warn('push', e); }
+  }
   return true;
 }
 
