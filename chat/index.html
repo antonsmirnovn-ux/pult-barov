@@ -87,10 +87,22 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 12px 1
 .send:disabled{opacity:.35}
 .bigbtn{flex:1;height:46px;border-radius:13px;background:var(--accent);color:#fff;font-weight:600;font-size:17px;display:flex;align-items:center;justify-content:center;gap:8px}
 .bigbtn svg{width:22px;height:22px}
-.prevw{flex:none;padding:8px 10px 0;background:var(--bar);display:flex;align-items:center;gap:10px}
-.prevw img{width:54px;height:54px;object-fit:cover;border-radius:10px}
-.prevw span{flex:1;font-size:14px;color:var(--muted)}
-.prevw button{color:var(--bad);font-size:15px}
+.prevw{flex:none;padding:8px 10px 0;background:var(--bar);display:flex;align-items:center;gap:8px;overflow-x:auto}
+.att{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:220px;padding:4px 4px 4px 4px;border-radius:12px;background:var(--cell);border:.5px solid var(--sep);font-size:13px}
+.att img{width:44px;height:44px;object-fit:cover;border-radius:8px}
+.att i{font-style:normal;font-size:22px;width:32px;text-align:center}
+.att .an{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.att button{flex:none;width:30px;height:30px;border-radius:50%;color:var(--bad);font-size:15px}
+.row.atts{flex-wrap:wrap;gap:8px}
+.phs{display:grid;gap:4px;margin:4px -6px 2px}
+.phs.n2{grid-template-columns:1fr 1fr}.phs.n3{grid-template-columns:1fr 1fr 1fr}
+.phs .ph{margin:0;min-width:0;min-height:90px}
+.phs.n2 .ph img,.phs.n3 .ph img{height:120px;max-height:none}
+.fl{display:flex;align-items:center;gap:8px;margin:6px 0 2px;padding:8px 10px;border-radius:12px;background:var(--fill);color:var(--ink);text-decoration:none;cursor:pointer;min-width:200px}
+.fl i{font-style:normal;font-size:20px}
+.fl span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.fl em{font-style:normal;font-size:12px;color:var(--muted)}
+.etx{width:100%;border:0;outline:none;background:none;padding:12px 16px;resize:vertical;font:inherit;color:inherit;min-height:100px}
 
 /* таб-бар */
 nav{flex:none;display:flex;background:var(--bar);border-top:.5px solid var(--sep);padding-bottom:env(safe-area-inset-bottom,0px);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
@@ -162,23 +174,23 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 </head>
 <body>
 <div class="app" id="app"></div>
-<input type="file" id="file" accept="image/*" hidden>
+<input type="file" id="file" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple hidden>
+<input type="file" id="file2" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple hidden>
 <script>
 "use strict";
-const APP_VERSION = "11";
+const APP_VERSION = "12";
 const CFG = self.CHAT_CFG || {};
 const API = CFG.api;
 const BARS = {"13":"13шка", epo:"ЕпО"};
-const CHS = [["prob","Проблемы"],["ask","Вопросы"]];
-const DEL_MIN = 15;            // своё сообщение можно удалить в течение 15 минут (то же на сервере)
+const CHS = [["prob","Проблемы"]];   // приложение только для рабочих задач: «Вопросы» и «Смены» убраны
+const MAX_FILES = 6, MAX_FILE_MB = 10;  // то же ограничение на сервере
 const POLL_MS = 12000;         // опрос сервера, пока приложение открыто
 const IC = {
   prob:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
-  ask:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/></svg>',
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 15h3"/></svg>',
   zp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20M6 15h4"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
-  clip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
+  clip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>',
   send:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
 };
 const isCh = c=>CHS.some(x=>x[0]===c);
@@ -189,7 +201,7 @@ const ls = { get(k,d){ try{ const v=localStorage.getItem("chat-"+k); return v==n
 const st = {
   token: ls.get("token",""), me: ls.get("me",null), ver: ls.get("ver",0),
   msgs: new Map(), bar: ls.get("bar","13"), ch: ls.get("ch","prob"), view: "chat",
-  seen: ls.get("seen",{}), people: [], online: true, draft: {}, photos: {}, users: null, edit: null, err: "",
+  seen: ls.get("seen",{}), people: [], online: true, draft: {}, atts: {}, users: null, edit: null, err: "",
   out: ls.get("out",[]),           // очередь неотправленных: переживает перезапуск
   books: [], bday: null, bedit: null, bookLoaded: {}, updReady: false
 };
@@ -208,9 +220,9 @@ function uid(){ try{ return crypto.randomUUID().replace(/-/g,""); }catch(_){ ret
 const ERR = {
   bad_pin:"Неверный PIN", auth:"Вход сброшен — войдите заново", forbidden:"Нет доступа",
   locked:"Слишком много неверных PIN. Вход закрыт на 15 минут — попробуйте позже",
-  empty:"Пустое сообщение", bad_photo:"Не удалось прочитать фото — выберите другое",
+  empty:"Напишите текст или прикрепите фото/файл", bad_photo:"Не удалось прочитать файл — выберите другой",
   bad_ch:"Этот раздел больше не работает — обновите приложение", bad_op:"Устаревшая версия приложения — обновите страницу",
-  too_late:"Удалить можно только в течение "+DEL_MIN+" минут после отправки", not_found:"Сообщение не найдено"
+  closed:"Проблема уже закрыта — изменить или удалить её нельзя", not_found:"Проблема не найдена"
 };
 function humanError(e){
   const m=String(e&&e.message||e||"");
@@ -314,12 +326,16 @@ function loginHtml(){
         :'<p>Сервер ещё не подключён.</p>')+'</div>';
 }
 
+const isImg = t=>/^image\//.test(t||"");
+const fmtSize = n=>n>=1048576?(n/1048576).toFixed(1).replace(".",",")+" МБ":Math.max(1,Math.round(n/1024))+" КБ";
+function attsHtml(list, act){
+  return list.map((f,i)=>'<span class="att">'+(isImg(f.type)?'<img src="'+f.data+'" alt="">':'<i>📄</i>')+'<span class="an">'+esc(f.name)+'</span><button type="button" data-a="'+act+'" data-i="'+i+'" aria-label="Убрать">✕</button></span>').join("");
+}
 function composerHtml(){
-  const k=key(st.bar,st.ch), photo=st.photos[k];
-  const pv = photo ? '<div class="prevw"><img src="'+photo+'" alt=""><span>Фото</span><button data-a="unphoto">Убрать</button></div>' : '';
-  const ph = st.ch==="prob" ? "Опишите проблему…" : "Сообщение";
-  return pv+'<div class="composer"><button class="ib" data-a="pick" aria-label="Фото">'+IC.clip+'</button>'+
-    '<textarea id="txt" rows="1" placeholder="'+ph+'" enterkeyhint="send">'+esc(st.draft[k]||"")+'</textarea>'+
+  const k=key(st.bar,st.ch), atts=st.atts[k]||[];
+  const pv = atts.length ? '<div class="prevw">'+attsHtml(atts,"unatt")+'</div>' : '';
+  return pv+'<div class="composer"><button class="ib" data-a="pick" aria-label="Прикрепить фото или файл">'+IC.clip+'</button>'+
+    '<textarea id="txt" rows="1" placeholder="Опишите проблему…" enterkeyhint="send">'+esc(st.draft[k]||"")+'</textarea>'+
     '<button class="ib send" data-a="send" aria-label="Отправить">'+IC.send+'</button></div>';
 }
 
@@ -338,14 +354,23 @@ function statusChip(m){
   return '<span class="st open">В списке дел</span>';
 }
 function probClass(m){ if(m.tmp) return ""; if(m.status==="done"||m.status==="skip"||m.status==="gone") return m.status; return ""; }
-const canDel = m=>st.me&&!m.tmp&&m.uid===st.me.id&&m.status!=="del"&&Date.now()-new Date(m.ts).getTime()<DEL_MIN*60000;
+const canChange = m=>st.me&&!m.tmp&&m.status!=="del"&&(st.me.admin||(m.uid===st.me.id&&["done","skip","gone"].indexOf(m.status)<0));
 
+function filesHtml(m){
+  const list = m.tmp ? (m.localFiles||[]) : (m.files||[]);
+  if(!list.length) return "";
+  const imgs=list.filter(f=>isImg(f.type)), docs=list.filter(f=>!isImg(f.type));
+  let h="";
+  if(imgs.length) h+='<div class="phs n'+Math.min(imgs.length,3)+'">'+imgs.map(f=>f.data?'<a class="ph"><img src="'+f.data+'" alt=""></a>':'<a class="ph" data-ph="'+esc(f.id)+'"><div class="ld">Загрузка фото…</div></a>').join("")+'</div>';
+  if(docs.length) h+=docs.map(f=>'<a class="fl"'+(f.id?' data-fid="'+esc(f.id)+'" data-fname="'+esc(f.name)+'"':'')+'><i>📄</i><span>'+esc(f.name)+'</span>'+(f.size?'<em>'+fmtSize(f.size)+'</em>':'')+'</a>').join("");
+  return h;
+}
 function renderFeed(keepPos, toBottom){
   const f=$("feed"); if(!f) return;
   const nearBottom = f.scrollHeight - f.scrollTop - f.clientHeight < 120;
   const list=[...st.msgs.values()].filter(m=>m.bar===st.bar&&m.ch===st.ch&&m.status!=="del").sort((a,b)=>(a.tmp?1e15+new Date(a.ts).getTime():a.id)-(b.tmp?1e15+new Date(b.ts).getTime():b.id));
   if(!list.length){
-    f.innerHTML='<div class="empty">'+(st.ch==="prob"?"<b>Проблем пока нет</b>Опишите проблему — она сразу попадёт в список дел помощника, а статус будет виден здесь.":"<b>Пока тихо</b>Здесь рабочие вопросы по бару.")+'</div>';
+    f.innerHTML='<div class="empty"><b>Проблем пока нет</b>Опишите проблему и при необходимости прикрепите фото или файл — она сразу попадёт в список дел помощника, а статус будет виден здесь.</div>';
     return;
   }
   let h="", lastDay="";
@@ -354,10 +379,10 @@ function renderFeed(keepPos, toBottom){
     if(dk!==lastDay){ h+='<div class="day"><span>'+esc(fmtDay(d))+'</span></div>'; lastDay=dk; }
     const mine=st.me&&m.uid===st.me.id;
     const cls="m"+(mine?" me":"")+(m.ch==="prob"?" prob "+probClass(m):"")+(m.tmp?" pend":"")+(m.fail?" fail":"");
-    const tm = m.fail ? 'Не отправлено — нажмите, чтобы повторить' : m.tmp ? 'Отправка…' : fmtTime(d)+(canDel(m)?'<a data-a="del" data-mid="'+m.id+'" href="#">удалить</a>':'');
+    const tm = m.fail ? 'Не отправлено — нажмите, чтобы повторить' : m.tmp ? 'Отправка…' : fmtTime(d)+(canChange(m)?'<a data-a="edit" data-mid="'+m.id+'" href="#">изменить</a><a data-a="del" data-mid="'+m.id+'" href="#">удалить</a>':'');
     h+='<div class="'+cls+'" data-id="'+esc(m.id)+'"><div class="b">'+
       (!mine?'<div class="who">'+esc(m.name)+'</div>':'')+
-      (m.photo?'<a class="ph" data-ph="'+esc(m.photo)+'"><div class="ld">Загрузка фото…</div></a>':(m.localPhoto?'<a class="ph"><img src="'+m.localPhoto+'" alt=""></a>':''))+
+      filesHtml(m)+
       (m.text?'<div class="tx">'+esc(m.text)+'</div>':'')+
       (m.ch==="prob"?statusChip(m):'')+
       '<div class="tm">'+tm+'</div></div></div>';
@@ -406,12 +431,12 @@ function compress(file){
 function viewer(src){ const d=document.createElement("div"); d.className="viewer"; d.innerHTML='<img src="'+src+'" alt=""><button>Закрыть</button>'; d.onclick=()=>d.remove(); document.body.appendChild(d); }
 
 /* ---------- отправка: очередь, ключ от дублей, автоповтор ---------- */
-function tmpMsg(o){ return {id:"t"+o.cid,cid:o.cid,tmp:true,ts:o.ts,bar:o.bar,ch:o.ch,uid:o.uid,name:o.name,text:o.text,localPhoto:o.photo,fail:!!o.fail}; }
+function tmpMsg(o){ return {id:"t"+o.cid,cid:o.cid,tmp:true,ts:o.ts,bar:o.bar,ch:o.ch,uid:o.uid,name:o.name,text:o.text,localFiles:o.files||[],fail:!!o.fail}; }
 function saveOut(){
   if(ls.set("out",st.out)) return;
   // не влезло (большие фото): сохраняем хотя бы тексты, фото останутся только до перезапуска
-  ls.set("out",st.out.map(o=>Object.assign({},o,{photo:""})));
-  toast("Фото сохранится до отправки, только пока приложение открыто");
+  ls.set("out",st.out.map(o=>Object.assign({},o,{files:[]})));
+  toast("Вложения сохранятся до отправки, только пока приложение открыто");
 }
 function dropTmp(cid){
   if(!cid) return;
@@ -419,11 +444,11 @@ function dropTmp(cid){
   const n=st.out.length; st.out=st.out.filter(o=>o.cid!==cid); if(st.out.length!==n) saveOut();
 }
 function send(){
-  const ta=$("txt"); const text=(ta?ta.value:"").trim(), k=key(st.bar,st.ch), photo=st.photos[k]||"";
-  if(!text&&!photo) return;
-  const o={cid:uid(),ts:new Date().toISOString(),bar:st.bar,ch:st.ch,uid:st.me.id,name:st.me.name,text,photo};
+  const ta=$("txt"); const text=(ta?ta.value:"").trim(), k=key(st.bar,st.ch), files=st.atts[k]||[];
+  if(!text&&!files.length) return;
+  const o={cid:uid(),ts:new Date().toISOString(),bar:st.bar,ch:st.ch,uid:st.me.id,name:st.me.name,text,files};
   st.out.push(o); saveOut();
-  st.msgs.set("t"+o.cid,tmpMsg(o)); st.draft[k]=""; delete st.photos[k];
+  st.msgs.set("t"+o.cid,tmpMsg(o)); st.draft[k]=""; delete st.atts[k];
   render(); renderFeed(false,true);
   flushOut(o.cid);
 }
@@ -436,8 +461,9 @@ async function sendOne(o, manual){
   const m=st.msgs.get("t"+o.cid); if(m){ m.fail=false; }
   if(st.view==="chat") renderFeed(true);
   try{
-    const r=await call("post",{bar:o.bar,ch:o.ch,text:o.text,photo:o.photo||"",cid:o.cid}, o.photo?60000:25000);
-    if(o.photo&&r.photo) photoMem.set(r.photo,o.photo);
+    const fl=o.files||[];
+    const r=await call("post",{bar:o.bar,ch:o.ch,text:o.text,files:fl.map(f=>({name:f.name,data:f.data})),cid:o.cid}, fl.length?90000:25000);
+    (r.files||[]).forEach((f,i)=>{ const src=fl[i]; if(src&&isImg(f.type)) photoMem.set(f.id,src.data); });
     dropTmp(o.cid); st.msgs.set(r.id,r); save();
     if(r.ch==="prob") toast("Добавлено в список дел");
     setOnline(true);
@@ -460,7 +486,7 @@ async function delMsg(id){
 }
 
 /* ---------- Ещё ---------- */
-const MUTE=[["prob","Новые проблемы"],["ask","Новые вопросы"],["book","Новые брони"]];
+const MUTE=[["prob","Новые проблемы"],["book","Новые брони"]];
 function renderMore(){
   const f=$("feed"); const push=pushState();
   let h='<div class="page">';
@@ -674,7 +700,7 @@ async function registerPush(ask){
 
 /* ---------- события ---------- */
 document.addEventListener("click",async e=>{
-  const t=e.target.closest("[data-a],[data-ch],[data-bar],[data-uid],[data-tbl],[data-day],[data-bk],.ph,.m.fail");
+  const t=e.target.closest("[data-a],[data-ch],[data-bar],[data-uid],[data-tbl],[data-day],[data-bk],.ph,.fl,.m.fail");
   if(!t){ const hall=e.target.closest(".hall"); if(hall){ const n=nearestTable(hall,e.clientX,e.clientY); if(n) openBooking(n.dataset.tbl); } return; }
   if(t.dataset.bar){ st.bar=t.dataset.bar; ls.set("bar",st.bar); render(); if(st.view==="book") loadBook(); return; }
   if(t.dataset.ch){ if(t.dataset.ch==="more"||t.dataset.ch==="book"||t.dataset.ch==="zp"){ st.view=t.dataset.ch; if(st.view==="book") loadBook(); } else { st.view="chat"; st.ch=t.dataset.ch; ls.set("ch",st.ch); } st.edit=null; render(); return; }
@@ -683,12 +709,18 @@ document.addEventListener("click",async e=>{
   if(t.dataset.bk){ const b=st.books.find(x=>String(x.id)===t.dataset.bk); if(b) openBooking(b.tbl); return; }
   if(t.dataset.uid){ st.edit=Object.assign({},st.users.find(u=>u.id===+t.dataset.uid)); renderUsers(); return; }
   if(t.classList.contains("ph")){ const img=t.querySelector("img"); if(img) viewer(img.src); return; }
+  if(t.classList.contains("fl")){ if(t.dataset.fid) downloadFile(t.dataset.fid,t.dataset.fname); return; }
   if(t.classList.contains("fail")){ const o=st.out.find(x=>"t"+x.cid===t.dataset.id); if(o) sendOne(o,true); return; }
   const a=t.dataset.a;
   if(a==="send") send();
   else if(a==="del"){ e.preventDefault(); delMsg(t.dataset.mid); }
   else if(a==="pick") $("file").click();
-  else if(a==="unphoto"){ delete st.photos[key(st.bar,st.ch)]; render(); }
+  else if(a==="unatt"){ const k=key(st.bar,st.ch); (st.atts[k]||[]).splice(+t.dataset.i,1); if(!(st.atts[k]||[]).length) delete st.atts[k]; render(); }
+  else if(a==="edit"){ e.preventDefault(); openEdit(t.dataset.mid); }
+  else if(a==="eunatt"){ const d=st.ed; if(d){ d.add.splice(+t.dataset.i,1); renderEditAtts(); } }
+  else if(a==="ekeep"){ const d=st.ed; if(d){ const id=t.dataset.fid; d.keep=d.keep.filter(x=>x!==id); renderEditAtts(); } }
+  else if(a==="epick"){ $("file2").click(); }
+  else if(a==="eclose"){ closeEdit(true); }
   else if(a==="reload"){ location.reload(); }
   else if(a==="bkadd"){ openBooking(""); }
   else if(a==="bkclose"){ closeSheet(true); }
@@ -731,6 +763,15 @@ document.addEventListener("submit",async e=>{
       try{ const r=await call("book_save",{book}); st.books=st.books.filter(x=>x.id!==r.id); st.books.push(r); closeSheet(true); renderBook(); toast(b.id?"Бронь изменена":"Стол забронирован"); }
       catch(err){ const el=$("bkerr"); if(el) el.textContent=err.message; }
     }
+    if(e.target.id==="eform"){
+      const f=e.target, d=st.ed; if(!d) return;
+      const text=f.text.value.trim();
+      if(!text&&!d.keep.length&&!d.add.length){ $("eerr").textContent="Напишите текст или оставьте вложение"; return; }
+      try{ const r=await call("edit",{id:d.id,text,keep:d.keep,add:d.add.map(x=>({name:x.name,data:x.data}))}, d.add.length?90000:25000);
+        (r.files||[]).forEach(x=>{ const src=d.add.find(a=>a.name===x.name); if(src&&isImg(x.type)) photoMem.set(x.id,src.data); });
+        st.msgs.set(r.id,r); save(); closeEdit(true); renderFeed(true); toast("Сохранено"); }
+      catch(err){ const el=$("eerr"); if(el) el.textContent=err.message; }
+    }
     if(e.target.id==="uform"){
       const f=e.target, bars=[]; if(f.b13.checked) bars.push("13"); if(f.bepo.checked) bars.push("epo");
       if(!bars.length){ $("uerr").textContent="Выберите хотя бы один бар"; return; }
@@ -745,15 +786,79 @@ document.addEventListener("input",e=>{
 document.addEventListener("keydown",e=>{
   if(e.target.id==="txt"&&e.key==="Enter"&&!e.shiftKey&&!/Mobi|iP(hone|ad)/.test(navigator.userAgent)){ e.preventDefault(); send(); }
 });
+async function readAtt(file){
+  if(file.size>MAX_FILE_MB*1048576) throw new Error("«"+file.name+"» больше "+MAX_FILE_MB+" МБ");
+  if(isImg(file.type)||/\.(heic|heif)$/i.test(file.name||"")){
+    const data=await compress(file);
+    return {name:(file.name||"фото").replace(/\.\w+$/,"")+".jpg",type:"image/jpeg",size:Math.round(data.length*0.75),data};
+  }
+  const data=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(new Error("Не удалось прочитать «"+file.name+"»")); r.readAsDataURL(file); });
+  return {name:file.name||"файл",type:file.type||"application/octet-stream",size:file.size,data};
+}
+async function addFiles(files, list, limit){
+  let skipped=0;
+  for(const f of files){
+    if(list.length>=limit){ skipped++; continue; }
+    try{ list.push(await readAtt(f)); }catch(err){ toast(err.message); }
+  }
+  if(skipped) toast("Не больше "+MAX_FILES+" вложений");
+}
 $("file").addEventListener("change",async e=>{
-  const file=e.target.files&&e.target.files[0]; e.target.value=""; if(!file) return;
-  try{ st.photos[key(st.bar,st.ch)]=await compress(file); render(); const ta=$("txt"); ta&&ta.focus(); }catch(err){ toast(err.message); }
+  const files=[...(e.target.files||[])]; e.target.value=""; if(!files.length) return;
+  const k=key(st.bar,st.ch), list=st.atts[k]||(st.atts[k]=[]);
+  await addFiles(files,list,MAX_FILES); if(!list.length) delete st.atts[k];
+  render(); const ta=$("txt"); ta&&ta.focus();
 });
+$("file2").addEventListener("change",async e=>{
+  const files=[...(e.target.files||[])]; e.target.value=""; if(!files.length||!st.ed) return;
+  const d=st.ed;
+  await addFiles(files,d.add,MAX_FILES-d.keep.length);
+  renderEditAtts();
+});
+
+/* ---------- правка проблемы ---------- */
+function openEdit(id){
+  const m=st.msgs.get(+id); if(!m||!canChange(m)) return;
+  closeEdit(true);
+  st.ed={id:m.id, keep:(m.files||[]).map(f=>f.id), add:[], files:m.files||[]};
+  const bg=document.createElement("div"); bg.className="sheet-bg"; bg.id="esheet";
+  bg.innerHTML='<form class="sheet" id="eform"><h3>Изменить проблему</h3>'+
+    '<div class="grp"><textarea name="text" rows="4" class="etx" placeholder="Описание проблемы">'+esc(m.text)+'</textarea></div>'+
+    '<div class="cap">Вложения</div><div class="grp"><div class="row atts" id="eatts"></div><button class="row act" type="button" data-a="epick">+ Добавить фото или файл</button></div>'+
+    '<div class="err" id="eerr"></div>'+
+    '<div class="grp"><button class="row act" type="submit"><b>Сохранить</b></button></div>'+
+    '<div class="grp"><button class="row" type="button" data-a="eclose">Отмена</button></div></form>';
+  bg.addEventListener("click",ev=>{ if(ev.target===bg) closeEdit(); });
+  document.body.appendChild(bg);
+  renderEditAtts();
+  bg.dataset.orig=editSig();
+}
+function renderEditAtts(){
+  const d=st.ed, el=$("eatts"); if(!d||!el) return;
+  const kept=d.files.filter(f=>d.keep.indexOf(f.id)>=0);
+  el.innerHTML=(kept.map(f=>'<span class="att">'+(isImg(f.type)&&photoMem.has(f.id)?'<img src="'+photoMem.get(f.id)+'" alt="">':'<i>'+(isImg(f.type)?'🖼':'📄')+'</i>')+'<span class="an">'+esc(f.name)+'</span><button type="button" data-a="ekeep" data-fid="'+esc(f.id)+'" aria-label="Убрать">✕</button></span>').join("")+attsHtml(d.add,"eunatt"))||'<span class="r">Нет вложений</span>';
+}
+function editSig(){ const f=$("eform"), d=st.ed; return f&&d?f.text.value+"|"+d.keep.join(",")+"|"+d.add.length:""; }
+function closeEdit(force){
+  const s=$("esheet"); if(!s) return true;
+  if(!force&&s.dataset.orig!==editSig()&&!confirm("Закрыть без сохранения?")) return false;
+  s.remove(); st.ed=null; return true;
+}
+async function downloadFile(id,name){
+  try{
+    toast("Загрузка файла…");
+    const data=await call("photo",{id},60000);
+    const blob=await (await fetch(data)).blob(), url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=name||"файл"; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(e){ toast(e.message); }
+}
+
 
 async function logout(silent){
   const tok=st.token, fcm=ls.get("pushTok","");
   if(!silent&&tok&&fcm){ try{ await call("push_unreg",{fcm},4000); }catch(_){} }
-  st.token=""; st.me=null; st.msgs.clear(); st.ver=0; st.seen={}; st.out=[]; st.books=[]; st.bookLoaded={}; st.photos={}; st.draft={};
+  st.token=""; st.me=null; st.msgs.clear(); st.ver=0; st.seen={}; st.out=[]; st.books=[]; st.bookLoaded={}; st.atts={}; st.draft={}; st.ed=null;
   ["token","me","cache","ver","seen","push","pushTok","out"].forEach(k=>{ try{ localStorage.removeItem("chat-"+k); }catch(_){} });
   forgetZp();
   try{ await caches.delete("chat-photos"); }catch(_){}
@@ -764,9 +869,9 @@ async function logout(silent){
 }
 
 function openLink(h){
-  const m=/#(prob|ask|book)-(13|epo)/.exec(h||""); if(!m||!st.me) return;
+  const m=/#(prob|ask|book)-(13|epo)/.exec(h||""); if(!m||!st.me) return; const view=m[1]==="ask"?"prob":m[1];
   if(st.me.bars.indexOf(m[2])>=0){ st.bar=m[2]; ls.set("bar",st.bar);
-    if(m[1]==="book"){ st.view="book"; render(); loadBook(); } else { st.ch=m[1]; st.view="chat"; ls.set("ch",st.ch); render(); } }
+    if(view==="book"){ st.view="book"; render(); loadBook(); } else { st.ch=view; st.view="chat"; ls.set("ch",st.ch); render(); } }
   try{ history.replaceState(null,"",location.pathname); }catch(_){}
 }
 window.addEventListener("hashchange",()=>openLink(location.hash));
@@ -774,7 +879,7 @@ if(navigator.serviceWorker) navigator.serviceWorker.addEventListener("message",e
 
 /* ---------- обновление приложения ---------- */
 // Не перезагружаем, пока человек что-то вводит или есть неотправленное — показываем плашку.
-function busyNow(){ return !!$("sheet")||!!st.edit||st.out.length>0||Object.keys(st.photos).length>0||Object.values(st.draft).some(v=>v&&v.trim()); }
+function busyNow(){ return !!$("sheet")||!!$("esheet")||!!st.edit||st.out.length>0||Object.keys(st.atts).length>0||Object.values(st.draft).some(v=>v&&v.trim()); }
 async function checkVersion(){
   try{ const t=(await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"")).trim();
     if(!t||t===APP_VERSION) return;
