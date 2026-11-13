@@ -125,6 +125,7 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 .hall{position:relative;width:100%;background:var(--cell);border-radius:14px;overflow:hidden;margin-bottom:22px}
 .tb{position:absolute;border-radius:8px;border:1.5px solid #15803D;background:#6EDC8C;color:#000;padding:0;overflow:hidden;font-size:11px;line-height:1.15;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;white-space:nowrap}
 .tb.round{border-radius:50%;align-items:center;justify-content:center;text-align:center}
+.tb.round b{font-size:9.5px}
 .tb.busy{border-color:#C8102E;background:#FF8A9B}
 .tb .n{display:flex;justify-content:space-between;gap:4px;font-weight:700}
 .tb .n span{font-weight:500;opacity:.7}
@@ -162,7 +163,7 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 <input type="file" id="cam" accept="image/*" capture="environment" hidden>
 <script>
 "use strict";
-const APP_VERSION = "8";
+const APP_VERSION = "9";
 const CFG = self.CHAT_CFG || {};
 const API = CFG.api;
 const BARS = {"13":"13шка", epo:"ЕпО"};
@@ -453,12 +454,12 @@ function userForm(u){
 const PLANS={
   epo:{W:100,H:52,rot:false,
     tables:[
-      {id:"1",seats:"2–3",x:2.2,y:3,w:9,h:8.6},{id:"2",seats:"2–3",x:1.4,y:16,w:9,h:8.6},{id:"11",seats:"2",x:1,y:29,w:8.4,h:8.4,round:1,label:"Бочка"},
+      {id:"1",seats:"2–3",x:1.8,y:3,w:9,h:8.6},{id:"2",seats:"2–3",x:1.8,y:16,w:9,h:8.6},{id:"11",seats:"2",x:1,y:29,w:8.4,h:8.4,round:1,label:"Бочка"},
       {id:"Бар",seats:"1–2",x:0.3,y:43.3,w:33.5,h:7.2},
       {id:"3",seats:"8",x:36.5,y:3.5,w:9.9,h:19.3},{id:"4",seats:"4",x:38,y:25.3,w:8.8,h:10.2},
-      {id:"5",seats:"6",x:50.6,y:3.4,w:7.6,h:18.1},{id:"6",seats:"6",x:50.6,y:22.4,w:26.7,h:7.4},{id:"10",seats:"8",x:68.3,y:4,w:26.7,h:7.9},
-      {id:"7",seats:"4",x:56.5,y:31.4,w:9,h:9.2},{id:"8",seats:"4",x:72.5,y:31.4,w:9,h:9.2},{id:"9",seats:"4",x:88.9,y:31.4,w:9,h:9.2}],
-    deco:[{x:49.3,y:0.6,w:0.4,h:41.7},{x:55,y:41.6,w:44.5,h:0.4}],
+      {id:"5",seats:"6",x:50.6,y:3.4,w:7.6,h:18.1},{id:"6",seats:"6",x:50.6,y:22.4,w:26.7,h:7.4},{id:"10",seats:"8",x:68.3,y:13.9,w:26.7,h:7.9},
+      {id:"7",seats:"4",x:56.5,y:42.3,w:9,h:9.2},{id:"8",seats:"4",x:72.5,y:42.3,w:9,h:9.2},{id:"9",seats:"4",x:88.9,y:42.3,w:9,h:9.2}],
+    deco:[{x:49.3,y:0.6,w:0.4,h:41.7}],
     labels:[{t:"Вход",x:13,y:0.8}]},
   "13":{W:100,H:46,rot:false,
     tables:[
