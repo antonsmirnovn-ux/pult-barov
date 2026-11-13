@@ -10,6 +10,683 @@ const DELA_SHEET_ID = '1CxNqSS83GgoHtCjlSD7lNwgetEDh5qSvUzuoDR4Va0w'; // «за�
 const DELA_TAB = 'список дел';
 const TZ = 'Europe/Moscow';
 const BARS = { '13': '13шка', epo: 'ЕпО' };
+const CH = { prob: 'Проблемы' }; // «Вопросы» и «Смены» убраны: приложение только для рабочих задач
+const APP_URL = 'https://antonsmirnovn-ux.github.io/pult-barov/chat/';
+const M_COLS = ['id', 'ts', 'upd', 'bar', 'ch', 'uid', 'name', 'text', 'photo', 'tag', 'status', 'note', 'cid', 'files'];
+const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active', 'zp', 'mute'];
+const B_COLS = ['id', 'bar', 'date', 'tbl', 'time', 'guests', 'name', 'phone', 'note', 'uid', 'uname', 'ts', 'active', 'deluid', 'delname', 'delts'];
+const MUTE_KINDS = ['prob', 'book']; // какие уведомления можно выключить
+const MAX_FILES = 6, MAX_FILE_MB = 10; // вложений в одной проблеме и размер одного файла
+const P = PropertiesService.getScriptProperties();
+
+/* ================= установка ================= */
+function setup() {
+  let id = P.getProperty('DB_ID');
+  let ss = id ? SpreadsheetApp.openById(id) : null;
+  if (!ss) {
+    ss = SpreadsheetApp.create('Рабочий чат');
+    P.setProperty('DB_ID', ss.getId());
+  }
+  const need = { msgs: M_COLS, users: U_COLS, push: ['uid', 'fcm', 'ts'], bookings: B_COLS };
+  Object.keys(need).forEach(function (n) {
+    let s = ss.getSheetByName(n);
+    if (!s) s = ss.insertSheet(n);
+    if (!s.getLastRow()) s.appendRow(need[n]);
+    else if (s.getLastColumn() < need[n].length) s.getRange(1, 1, 1, need[n].length).setValues([need[n]]);
+    s.setFrozenRows(1);
+  });
+  const def = ss.getSheetByName('Sheet1') || ss.getSheetByName('Лист1');
+  if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
+  ss.getSheetByName('users').getRange('C:C').setNumberFormat('@');
+  ss.getSheetByName('msgs').getRange('H:L').setNumberFormat('@');
+  ss.getSheetByName('bookings').getRange('B:I').setNumberFormat('@'); // текст, даты «13.11» и т.п. не превращаются в числа
+  // первый админ — владелец. PIN генерируется случайно и печатается в журнал выполнения.
+  const u = ss.getSheetByName('users');
+  if (u.getLastRow() < 2) {
+    const pin = String(10000000 + Math.floor(Math.random() * 90000000));
+    u.appendRow([1, 'Админ', pin, 'both', true, '', true]);
+    Logger.log('PIN первого админа: ' + pin + ' — смените его в приложении (Ещё → Сотрудники).');
+  }
+  folder_();
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'cron') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('cron').timeBased().everyMinutes(5).create();
+  // первый доступ к таблице «заказ пива» (чтобы Google спросил разрешение сразу)
+  SpreadsheetApp.openById(DELA_SHEET_ID).getSheetByName(DELA_TAB).getLastRow();
+  Logger.log('Готово. Таблица: ' + ss.getUrl());
+}
+
+
+/**
+ * Однократно после обновления до версии 5: заголовки новых столбцов и удаление старых записей раздела «Смены».
+ * Фото чеков на Диске не трогает. Повторный запуск безопасен.
+ */
+function migrateV5() {
+  const ss = db_();
+  const need = { msgs: M_COLS, users: U_COLS, bookings: B_COLS };
+  Object.keys(need).forEach(function (n) { ss.getSheetByName(n).getRange(1, 1, 1, need[n].length).setValues([need[n]]); });
+  ss.getSheetByName('msgs').getRange('M:N').setNumberFormat('@');
+  ss.getSheetByName('users').getRange('I:I').setNumberFormat('@');
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  let n = 0;
+  try {
+    const s = ss.getSheetByName('msgs'), last = s.getLastRow();
+    if (last >= 2) {
+      const ch = s.getRange(2, 5, last - 1, 1).getValues();
+      for (let i = ch.length - 1; i >= 0; i--) if (String(ch[i][0]) === 'shift') { s.deleteRow(i + 2); n++; }
+    }
+    verBump_();
+  } finally { lock.releaseLock(); }
+  Logger.log('Удалено записей «Смены»: ' + n);
+  return n;
+}
+
+function db_() { return SpreadsheetApp.openById(P.getProperty('DB_ID')); }
+function sh_(n) { return db_().getSheetByName(n); }
+function folder_() {
+  const id = P.getProperty('FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  const f = DriveApp.createFolder('Рабочий чат — фото');
+  P.setProperty('FOLDER_ID', f.getId());
+  return f;
+}
+function subFolder_(parent, name) {
+  const it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+
+/* ================= HTTP ================= */
+function doGet(e) { return out_({ ok: true, data: 'Рабочий чат: сервер работает' }); }
+
+function doPost(e) {
+  let res;
+  try {
+    const b = JSON.parse((e.postData && e.postData.contents) || '{}');
+    res = { ok: true, data: route_(b) };
+  } catch (err) {
+    res = { ok: false, error: String(err && err.message || err) };
+  }
+  return out_(res);
+}
+function out_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+
+function route_(b) {
+  if (b.op === 'login') return login_(b.pin);
+  const me = auth_(b.token);
+  switch (b.op) {
+    case 'sync': return sync_(me, b);
+    case 'post': return post_(me, b);
+    case 'photo': return photo_(me, b.id);
+    case 'edit': return editMsg_(me, b);
+    case 'del': return delMsg_(me, b.id);
+    case 'push_reg': return pushReg_(me, b.fcm);
+    case 'push_unreg': return pushUnreg_(me, b.fcm);
+    case 'push_test': sendTo_([me.id], 'Рабочий чат', 'Уведомления работают 👍', APP_URL); return true;
+    case 'mute': return muteSet_(me, b.mute);
+    case 'users': admin_(me); return listUsers_(true);
+    case 'user_save': admin_(me); return userSave_(me, b.user);
+    case 'user_del': admin_(me); return userDel_(b.id);
+    case 'book_list': return bookList_(me, b);
+    case 'book_save': return bookSave_(me, b.book);
+    case 'book_del': return bookDel_(me, b.id, b.bar, b.tlabel);
+    case 'zp_keys': return zpKeys_(me);
+  }
+  throw new Error('bad_op');
+}
+
+/* ================= пользователи ================= */
+function rows_(s, cols) {
+  const last = s.getLastRow();
+  if (last < 2) return [];
+  return s.getRange(2, 1, last - 1, cols.length).getValues().map(function (v, i) {
+    const o = { _row: i + 2 };
+    cols.forEach(function (c, j) { o[c] = v[j]; });
+    return o;
+  });
+}
+function users_() {
+  const c = CacheService.getScriptCache(), hit = c.get('users');
+  if (hit) return JSON.parse(hit);
+  const list = rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; })
+    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, token: String(u.token || ''), mute: muteOf_(u.mute), _row: u._row }; });
+  c.put('users', JSON.stringify(list), 300);
+  return list;
+}
+function barsOf_(v) { v = String(v || '').toLowerCase(); return v === 'both' || v === 'оба' ? ['13', 'epo'] : (v.indexOf('epo') >= 0 || v.indexOf('епо') >= 0 ? ['epo'] : ['13']); }
+function muteOf_(v) { return String(v || '').split(',').filter(function (k) { return MUTE_KINDS.indexOf(k) >= 0; }); }
+function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper, zp: u.zp || u.admin, mute: u.mute || [] }; }
+function dropCache_() { CacheService.getScriptCache().remove('users'); }
+
+// Защита от подбора PIN: после 10 неудачных попыток за 15 минут вход закрывается на 15 минут для всех.
+const LOGIN_MAX_FAILS = 10, LOGIN_WINDOW_S = 900;
+function loginFails_() { return +(CacheService.getScriptCache().get('lfail') || 0); }
+function loginFail_() {
+  const c = CacheService.getScriptCache(), lock = LockService.getScriptLock();
+  let n;
+  if (lock.tryLock(3000)) { try { n = loginFails_() + 1; c.put('lfail', String(n), LOGIN_WINDOW_S); } finally { lock.releaseLock(); } }
+  else { n = loginFails_() + 1; c.put('lfail', String(n), LOGIN_WINDOW_S); }
+  if (n === LOGIN_MAX_FAILS) {
+    try { sendTo_(users_().filter(function (u) { return u.admin; }).map(function (u) { return u.id; }), '🔒 Рабочий чат', 'Много неверных PIN подряд — вход закрыт на 15 минут', APP_URL); } catch (e) {}
+  }
+}
+
+function login_(pin) {
+  pin = String(pin || '').trim();
+  if (!pin) throw new Error('bad_pin');
+  if (loginFails_() >= LOGIN_MAX_FAILS) throw new Error('locked');
+  const u = users_().filter(function (x) { return x.pin === pin; })[0];
+  if (!u) { loginFail_(); Utilities.sleep(1500); throw new Error('bad_pin'); }
+  let tok = u.token;
+  if (!tok) {
+    tok = Utilities.getUuid().replace(/-/g, '');
+    sh_('users').getRange(u._row, U_COLS.indexOf('token') + 1).setValue(tok);
+    dropCache_();
+  }
+  return { token: tok, me: pub_(u) };
+}
+function auth_(tok) {
+  const u = tok && users_().filter(function (x) { return x.token && x.token === tok; })[0];
+  if (!u) throw new Error('auth');
+  return u;
+}
+function admin_(me) { if (!me.admin) throw new Error('forbidden'); }
+
+function listUsers_(withPins) {
+  return rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; }).map(function (u) {
+    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true };
+    if (withPins) o.pin = String(u.pin);
+    return o;
+  });
+}
+function userSave_(me, x) {
+  const s = sh_('users'), all = rows_(s, U_COLS);
+  const name = String(x.name || '').trim(), pin = String(x.pin || '').trim();
+  if (!name) throw new Error('Нужно имя');
+  if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN — от 4 до 8 цифр');
+  if (all.some(function (u) { return u.active !== false && String(u.pin) === pin && +u.id !== +x.id; })) throw new Error('Такой PIN уже занят');
+  const bars = x.bars && x.bars.length === 2 ? 'both' : (x.bars && x.bars[0] === 'epo' ? 'epo' : '13');
+  // роль: true — админ (управляет сотрудниками), 'helper' — помощник (уведомления как у админа), false — сотрудник
+  const role = x.role === 'admin' ? true : x.role === 'helper' ? 'helper' : false;
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const cur = x.id ? all.filter(function (u) { return +u.id === +x.id; })[0] : null;
+    if (cur) {
+      const pinChanged = String(cur.pin) !== pin;
+      if (+cur.id === me.id && role !== true) throw new Error('Нельзя снять админа с самого себя');
+      s.getRange(cur._row, 2, 1, 4).setValues([[name, pin, bars, role]]);
+      s.getRange(cur._row, 8).setValue(!!x.zp);
+      if (pinChanged) s.getRange(cur._row, 6).setValue(''); // старый вход сбрасывается
+    } else {
+      const id = all.reduce(function (m, u) { return Math.max(m, +u.id || 0); }, 0) + 1;
+      s.appendRow([id, name, pin, bars, role, '', true, !!x.zp]);
+    }
+  } finally { lock.releaseLock(); }
+  dropCache_();
+  return listUsers_(true);
+}
+function userDel_(id) {
+  const s = sh_('users'), u = rows_(s, U_COLS).filter(function (r) { return +r.id === +id; })[0];
+  if (u) { s.getRange(u._row, 6, 1, 2).setValues([['', false]]); dropCache_(); }
+  return listUsers_(true);
+}
+
+/* ================= сообщения ================= */
+function verGet_() { return +(CacheService.getScriptCache().get('ver') || P.getProperty('VER') || 0); }
+function verBump_() {
+  const v = Date.now();
+  P.setProperty('VER', String(v));
+  CacheService.getScriptCache().put('ver', String(v), 21600);
+  return v;
+}
+
+function sync_(me, b) {
+  maybeStatuses_();
+  const since = +b.since || 0, ver = verGet_();
+  const res = { me: pub_(me), ver: ver, msgs: [] };
+  if (b.withUsers) res.people = listUsers_(false);
+  if (since && since >= ver) return res;
+  const s = sh_('msgs'), last = s.getLastRow();
+  if (last < 2) return res;
+  const from = Math.max(2, last - (since ? 3000 : 1500) + 1);
+  const vals = s.getRange(from, 1, last - from + 1, M_COLS.length).getValues();
+  vals.forEach(function (v) {
+    if (+v[2] <= since) return;
+    if (me.bars.indexOf(String(v[3])) < 0) return;
+    if (!CH[String(v[4])]) return; // старые разделы (например, «Смены») не отдаём
+    res.msgs.push(msg_(v));
+  });
+  return res;
+}
+function msg_(v) {
+  const o = {}; M_COLS.forEach(function (c, j) { o[c] = v[j]; });
+  o.id = +o.id; o.upd = +o.upd; o.uid = +o.uid;
+  o.ts = o.ts instanceof Date ? o.ts.toISOString() : new Date(+o.ts).toISOString();
+  o.photo = String(o.photo || ''); o.text = String(o.text || ''); o.tag = String(o.tag || ''); o.status = String(o.status || ''); o.note = String(o.note || ''); o.cid = String(o.cid || '');
+  let files = [];
+  try { files = JSON.parse(String(o.files || '[]')) || []; } catch (e) { files = []; }
+  if (!files.length && o.photo) files = [{ id: o.photo, name: 'фото.jpg', type: 'image/jpeg' }]; // старые записи с одним фото
+  o.files = files;
+  if (o.status === 'del') { o.text = ''; o.photo = ''; o.files = []; }
+  return o;
+}
+
+// Повторная отправка того же сообщения (тот же cid) не создаёт дубль: возвращаем уже сохранённое.
+function findByCid_(s, cid) {
+  if (!cid) return null;
+  const hit = s.getRange(1, M_COLS.indexOf('cid') + 1, s.getMaxRows(), 1).createTextFinder(cid).matchEntireCell(true).findNext();
+  return hit ? s.getRange(hit.getRow(), 1, 1, M_COLS.length).getValues()[0] : null;
+}
+
+/** Сохраняет вложения на Диск. list: [{name, data:'data:<type>;base64,...'}]. Возвращает [{id,name,type,size}]. */
+function saveFiles_(me, bar, list) {
+  list = Array.isArray(list) ? list : [];
+  if (list.length > MAX_FILES) throw new Error('Не больше ' + MAX_FILES + ' вложений');
+  if (!list.length) return [];
+  const now = new Date();
+  const f = subFolder_(subFolder_(folder_(), BARS[bar]), Utilities.formatDate(now, TZ, 'yyyy-MM'));
+  return list.map(function (x, i) {
+    const m = /^data:([\w.+-]+\/[\w.+-]+)?(?:;[^,]*)?;base64,(.+)$/.exec(String(x && x.data || ''));
+    if (!m) throw new Error('bad_photo');
+    const bytes = Utilities.base64Decode(m[2]);
+    if (bytes.length > MAX_FILE_MB * 1024 * 1024) throw new Error('Файл больше ' + MAX_FILE_MB + ' МБ');
+    const type = m[1] || 'application/octet-stream';
+    let name = String(x.name || '').replace(/[\\\/:*?"<>|]/g, '_').slice(0, 80) || ('файл ' + (i + 1));
+    const fname = 'Проблема ' + Utilities.formatDate(now, TZ, 'dd.MM.yyyy HH-mm') + ' ' + me.name + ' — ' + name;
+    const id = f.createFile(Utilities.newBlob(bytes, type, fname)).getId();
+    return { id: id, name: name, type: type, size: bytes.length };
+  });
+}
+function delaLine_(bar, name, text, files, tag) {
+  const n = (files || []).length;
+  return '⚠️ ' + BARS[bar] + ' · ' + name + ': ' + (text || 'см. вложения') + (n ? ' (вложений: ' + n + ', в чате)' : '') + ' [' + tag + ']';
+}
+
+function post_(me, b) {
+  const bar = String(b.bar), ch = String(b.ch || 'prob');
+  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  if (!CH[ch]) throw new Error('bad_ch');
+  const text = String(b.text || '').trim().slice(0, 2000);
+  let list = Array.isArray(b.files) ? b.files : [];
+  if (b.photo) list = [{ name: 'фото.jpg', data: b.photo }].concat(list); // старые версии приложения
+  if (!text && !list.length) throw new Error('empty');
+  const cid = String(b.cid || '').replace(/[^\w-]/g, '').slice(0, 40);
+  if (cid) { const ex = findByCid_(sh_('msgs'), cid); if (ex) return msg_(ex); }
+
+  const files = saveFiles_(me, bar, list);
+  const firstImg = (files.filter(function (f) { return /^image\//.test(f.type); })[0] || {}).id || '';
+
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let row;
+  try {
+    const s = sh_('msgs'), last = s.getLastRow();
+    if (cid) { const ex = findByCid_(s, cid); if (ex) return msg_(ex); } // пока ждали блокировку, первая попытка успела сохраниться
+    const id = last >= 2 ? (+s.getRange(last, 1).getValue() || last) + 1 : 1;
+    const now = new Date(), upd = Math.max(Date.now(), verGet_() + 1);
+    const tag = 'п' + id, date = Utilities.formatDate(now, TZ, 'dd.MM');
+    addTask_(date, delaLine_(bar, me.name, text, files, tag));
+    row = [id, now.getTime(), upd, bar, ch, me.id, me.name, text, firstImg, tag, 'open', date, cid, JSON.stringify(files)];
+    s.appendRow(row);
+    SpreadsheetApp.flush();
+    P.setProperty('VER', String(upd)); CacheService.getScriptCache().put('ver', String(upd), 21600);
+  } finally { lock.releaseLock(); }
+
+  try { notifyNew_(me, bar, ch, text, files.length > 0); } catch (e) { console.warn('push', e); }
+  return msg_(row);
+}
+
+function findMsgRow_(s, id) {
+  const hit = s.getRange('A:A').createTextFinder(String(+id)).matchEntireCell(true).findNext();
+  if (!hit) throw new Error('not_found');
+  return hit.getRow();
+}
+// Менять и удалять может автор, пока проблема не закрыта, и админ — всегда.
+function canChange_(me, v) {
+  if (me.admin) return true;
+  if (+v[5] !== me.id) return false;
+  return ['done', 'skip', 'gone', 'del'].indexOf(String(v[10])) < 0;
+}
+function bumpRow_(s, r) {
+  const upd = Math.max(Date.now(), verGet_() + 1);
+  s.getRange(r, 3).setValue(upd);
+  return upd;
+}
+function delaFind_(tag) { const d = dela_(); return { d: d, cells: d.getRange('B:B').createTextFinder('[' + tag + ']').findAll() }; }
+
+/** Правка проблемы: текст, удаление части вложений, новые вложения. Строка в «списке дел» обновляется (цвет не трогаем). */
+function editMsg_(me, b) {
+  const s = sh_('msgs');
+  let r = findMsgRow_(s, b.id), v = s.getRange(r, 1, 1, M_COLS.length).getValues()[0];
+  if (!canChange_(me, v)) throw new Error(+v[5] === me.id ? 'closed' : 'forbidden');
+  const text = String(b.text == null ? v[7] : b.text).trim().slice(0, 2000);
+  const cur = msg_(v).files, keep = Array.isArray(b.keep) ? b.keep.map(String) : cur.map(function (f) { return f.id; });
+  const add = Array.isArray(b.add) ? b.add : [];
+  if (cur.filter(function (f) { return keep.indexOf(f.id) >= 0; }).length + add.length > MAX_FILES) throw new Error('Не больше ' + MAX_FILES + ' вложений');
+  const added = saveFiles_(me, String(v[3]), add);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    r = findMsgRow_(s, b.id); v = s.getRange(r, 1, 1, M_COLS.length).getValues()[0];
+    if (!canChange_(me, v)) throw new Error('closed');
+    const files = msg_(v).files.filter(function (f) { return keep.indexOf(f.id) >= 0; }).concat(added);
+    if (!text && !files.length) throw new Error('empty');
+    const firstImg = (files.filter(function (f) { return /^image\//.test(f.type); })[0] || {}).id || '';
+    const upd = bumpRow_(s, r);
+    s.getRange(r, 8, 1, 2).setValues([[text, firstImg]]);
+    s.getRange(r, M_COLS.indexOf('files') + 1).setValue(JSON.stringify(files));
+    if (v[9]) {
+      try { const f = delaFind_(v[9]); f.cells.forEach(function (c) { f.d.getRange(c.getRow(), 2).setValue(delaLine_(String(v[3]), String(v[6]), text, files, v[9])); }); }
+      catch (e) { console.warn('dela edit', e); }
+    }
+    SpreadsheetApp.flush();
+    P.setProperty('VER', String(upd)); CacheService.getScriptCache().put('ver', String(upd), 21600);
+    v = s.getRange(r, 1, 1, M_COLS.length).getValues()[0];
+  } finally { lock.releaseLock(); }
+  return msg_(v);
+}
+
+/** Удаление проблемы. Она убирается и из «списка дел». */
+function delMsg_(me, id) {
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let v, r;
+  try {
+    const s = sh_('msgs');
+    r = findMsgRow_(s, id); v = s.getRange(r, 1, 1, M_COLS.length).getValues()[0];
+    if (v[10] === 'del') return msg_(v);
+    if (!canChange_(me, v)) throw new Error(+v[5] === me.id ? 'closed' : 'forbidden');
+    const upd = bumpRow_(s, r);
+    s.getRange(r, 11).setValue('del');
+    if (v[9]) {
+      try { const f = delaFind_(v[9]); f.cells.forEach(function (c) { f.d.getRange(c.getRow(), 2, 1, 2).clearContent(); f.d.getRange(c.getRow(), 2).setBackground('#ffffff'); }); }
+      catch (e) { console.warn('dela del', e); }
+    }
+    SpreadsheetApp.flush();
+    P.setProperty('VER', String(upd)); CacheService.getScriptCache().put('ver', String(upd), 21600);
+    v[2] = upd; v[10] = 'del';
+  } finally { lock.releaseLock(); }
+  return msg_(v);
+}
+
+/** Отдаёт вложение (фото или файл), только если оно из проблемы бара, к которому у человека есть доступ. */
+function photo_(me, id) {
+  id = String(id || '').replace(/[^\w-]/g, '');
+  if (!id) throw new Error('forbidden');
+  const s = sh_('msgs');
+  let hit = s.getRange('I:I').createTextFinder(id).matchEntireCell(true).findNext();
+  if (!hit) hit = s.getRange(1, M_COLS.indexOf('files') + 1, s.getMaxRows(), 1).createTextFinder('"' + id + '"').findNext();
+  if (!hit || me.bars.indexOf(String(s.getRange(hit.getRow(), 4).getValue())) < 0) throw new Error('forbidden');
+  const b = DriveApp.getFileById(id).getBlob();
+  return 'data:' + b.getContentType() + ';base64,' + Utilities.base64Encode(b.getBytes());
+}
+
+/* ================= связь со «списком дел» ================= */
+function dela_() { return SpreadsheetApp.openById(DELA_SHEET_ID).getSheetByName(DELA_TAB); }
+function parseDM_(x) {
+  const m = String(x || '').trim().match(/^(\d{1,2})\s*[.,\s\/]\s*(\d{1,2})(?:\D|$)/);
+  return m ? ('0' + m[1]).slice(-2) + '.' + ('0' + m[2]).slice(-2) : null;
+}
+// Та же логика, что в «Пульте»: строки только дописываются вниз, дата — в первой строке дня.
+function addTask_(date, text) {
+  const s = dela_(), last = s.getLastRow();
+  const vals = last ? s.getRange(1, 1, last, 2).getDisplayValues() : [];
+  const target = parseDM_(date);
+  let lastDay = null;
+  vals.forEach(function (v) { const dm = parseDM_(v[0]); if (dm) lastDay = dm; });
+  let r;
+  if (last && lastDay === target) r = last + 1;
+  else { r = last ? last + 2 : 1; s.getRange(r, 1).setNumberFormat('@').setValue(date); }
+  s.getRange(r, 2).setValue(text).setBackground('#ffffff');
+  return r;
+}
+// Цвета «Пульта»: зелёный — решено, жёлтый — «не нужно» или перенос. Любой другой цвет (белый, ручная подсветка) — открыта.
+function colorStatus_(hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || ''); if (!m) return 'open';
+  const r = parseInt(m[1], 16) / 255, g = parseInt(m[2], 16) / 255, b = parseInt(m[3], 16) / 255;
+  if (g > 0.55 && r < 0.5 && b < 0.6) return 'done';          // зелёный
+  if (r > 0.8 && g > 0.75 && b < 0.45) return 'skip';          // жёлтый
+  return 'open';
+}
+
+function maybeStatuses_() {
+  const c = CacheService.getScriptCache();
+  if (c.get('stchk')) return;
+  c.put('stchk', '1', 60);
+  try { checkStatuses_(); } catch (e) { console.warn('statuses', e); }
+}
+function cron() { checkStatuses_(); }
+
+/** Смотрит, что помощник сделал с проблемами в «Пульте», и переносит статус в чат. */
+function checkStatuses_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const s = sh_('msgs'), last = s.getLastRow();
+    if (last < 2) return;
+    const from = Math.max(2, last - 3000 + 1);
+    const vals = s.getRange(from, 1, last - from + 1, M_COLS.length).getValues();
+    const open = {};
+    vals.forEach(function (v, i) {
+      if (String(v[4]) === 'prob' && v[9] && ['done', 'skip', 'gone', 'del'].indexOf(String(v[10])) < 0) open[v[9]] = i;
+    });
+    if (!Object.keys(open).length) return;
+
+    const d = dela_(), dl = d.getLastRow();
+    if (!dl) return;
+    const df = 1, n = dl; // читаем весь «список дел»: иначе старые проблемы ошибочно получали «Убрано из дел»
+    const dv = d.getRange(df, 1, n, 3).getDisplayValues(), bg = d.getRange(df, 2, n, 1).getBackgrounds();
+    const found = {}; let cur = null;
+    dv.forEach(function (v, i) {
+      if (parseDM_(v[0])) cur = parseDM_(v[0]);
+      const m = /\[(п\d+)\]\s*$/.exec(String(v[1]).trim());
+      if (m && open.hasOwnProperty(m[1])) found[m[1]] = { st: colorStatus_(bg[i][0]), date: cur, comment: v[2] };
+    });
+
+    let changed = false;
+    Object.keys(open).forEach(function (tag) {
+      const i = open[tag], v = vals[i], f = found[tag];
+      let st, note;
+      if (!f) { st = 'gone'; note = ''; }
+      else if (f.st === 'done') { st = 'done'; note = f.date || ''; }
+      else if (f.st === 'skip') { st = /перенос/i.test(f.comment) ? 'open' : 'skip'; note = f.date || ''; }
+      else { st = 'open'; note = f.date || ''; }
+      if (st === v[10] && note === String(v[11])) return;
+      if (!f && dl < 5) return; // защита от пустого чтения
+      const upd = Math.max(Date.now(), verGet_() + 1);
+      s.getRange(from + i, 3).setValue(upd);
+      s.getRange(from + i, 11, 1, 2).setValues([[st, note]]);
+      P.setProperty('VER', String(upd)); CacheService.getScriptCache().put('ver', String(upd), 21600);
+      changed = true;
+      if (st === 'done' || st === 'skip') {
+        const txt = String(v[7] || 'см. фото');
+        try { sendTo_([+v[5]].concat(adminIds_(String(v[3]))), st === 'done' ? '✅ Решено' : 'Проблема закрыта', BARS[v[3]] + ': ' + txt.slice(0, 120), APP_URL + '#prob-' + v[3]); } catch (e) {}
+      }
+    });
+    if (changed) SpreadsheetApp.flush();
+  } finally { lock.releaseLock(); }
+}
+
+/* ================= уведомления (Firebase Cloud Messaging) ================= */
+function adminIds_(bar) { return users_().filter(function (u) { return (u.admin || u.helper) && (!bar || u.bars.indexOf(bar) >= 0); }).map(function (u) { return u.id; }); }
+/** Сотрудники бара, кроме автора, у которых этот вид уведомлений не выключен. */
+function audience_(me, bar, kind) {
+  return users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0 && (u.mute || []).indexOf(kind) < 0; }).map(function (u) { return u.id; });
+}
+
+function notifyNew_(me, bar, ch, text, hasPhoto) {
+  const to = audience_(me, bar, ch);
+  if (!to.length) return;
+  const title = '⚠️ Проблема · ' + BARS[bar];
+  const body = me.name + ': ' + (text ? text.slice(0, 150) : hasPhoto ? 'вложение' : '');
+  sendTo_(to, title, body, APP_URL + '#' + ch + '-' + bar);
+}
+
+function muteSet_(me, mute) {
+  const list = (Array.isArray(mute) ? mute : []).filter(function (k) { return MUTE_KINDS.indexOf(k) >= 0; });
+  sh_('users').getRange(me._row, U_COLS.indexOf('mute') + 1).setValue(list.join(','));
+  dropCache_();
+  return list;
+}
+
+function pushReg_(me, fcm) {
+  fcm = String(fcm || ''); if (!fcm) return false;
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const s = sh_('push'), rows = rows_(s, ['uid', 'fcm', 'ts']);
+    const ex = rows.filter(function (r) { return r.fcm === fcm; })[0];
+    if (ex) s.getRange(ex._row, 1, 1, 3).setValues([[me.id, fcm, new Date()]]);
+    else s.appendRow([me.id, fcm, new Date()]);
+  } finally { lock.releaseLock(); }
+  return true;
+}
+/** При выходе телефон отвязывается: уведомления этого сотрудника на него больше не приходят. */
+function pushUnreg_(me, fcm) {
+  fcm = String(fcm || ''); if (!fcm) return false;
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const s = sh_('push');
+    rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return r.fcm === fcm && +r.uid === me.id; })
+      .map(function (r) { return r._row; }).sort(function (a, b) { return b - a; }).forEach(function (r) { s.deleteRow(r); });
+  } finally { lock.releaseLock(); }
+  return true;
+}
+
+const FCM_PROJECT = 'rabochiy-chat'; // проект Firebase
+
+function sendTo_(uids, title, body, link) {
+  if (!uids.length) return;
+  const s = sh_('push'), rows = rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return uids.indexOf(+r.uid) >= 0 && r.fcm; });
+  if (!rows.length) return;
+  // Уведомления отправляются от имени владельца скрипта (он владелец проекта Firebase) — без файлов-ключей.
+  const at = ScriptApp.getOAuthToken();
+  const url = 'https://fcm.googleapis.com/v1/projects/' + FCM_PROJECT + '/messages:send';
+  const reqs = rows.map(function (r) {
+    return {
+      url: url, method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { Authorization: 'Bearer ' + at, 'x-goog-user-project': FCM_PROJECT },
+      payload: JSON.stringify({ message: {
+        token: r.fcm,
+        data: { title: title, body: body, link: link },
+        webpush: { headers: { Urgency: 'high', TTL: '86400' }, fcm_options: { link: link },
+          notification: { title: title, body: body, icon: APP_URL + 'icon-192.png', badge: APP_URL + 'icon-192.png' } }
+      } })
+    };
+  });
+  const res = UrlFetchApp.fetchAll(reqs);
+  const dead = [];
+  res.forEach(function (x, i) {
+    const code = x.getResponseCode();
+    if (code === 404 || /UNREGISTERED/.test(x.getContentText())) dead.push(rows[i].fcm);
+    else if (code !== 200) console.warn('fcm ' + code + ' ' + x.getContentText().slice(0, 300));
+  });
+  if (!dead.length) return;
+  // удаляем по самому токену и под блокировкой: номера строк могли сдвинуться, пока шла отправка
+  const lock = LockService.getScriptLock(), held = lock.hasLock();
+  if (!held && !lock.tryLock(10000)) return;
+  try {
+    rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return dead.indexOf(r.fcm) >= 0; })
+      .map(function (r) { return r._row; }).sort(function (a, b) { return b - a; }).forEach(function (r) { s.deleteRow(r); });
+  } finally { if (!held) lock.releaseLock(); }
+}
+
+/** Проверка уведомлений из редактора: отправит тест всем админам. */
+function testPush() { sendTo_(adminIds_(), 'Рабочий чат', 'Тест уведомлений', APP_URL); }
+
+/* ================= бронь столов ================= */
+function bookRows_() { return rows_(sh_('bookings'), B_COLS).filter(function (r) { return r.id !== '' && r.active !== false; }); }
+function bookPub_(r) {
+  return { id: +r.id, bar: String(r.bar), date: String(r.date), tbl: String(r.tbl), time: String(r.time), guests: String(r.guests),
+    name: String(r.name), phone: String(r.phone || ''), note: String(r.note || ''), uname: String(r.uname || ''), uid: +r.uid || 0 };
+}
+function bookList_(me, b) {
+  const bar = String(b.bar);
+  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  const from = String(b.from || ''), to = String(b.to || '9999');
+  return bookRows_().filter(function (r) { return String(r.bar) === bar && String(r.date) >= from && String(r.date) <= to; }).map(bookPub_);
+}
+function todayIso_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
+function bookSave_(me, x) {
+  x = x || {};
+  const bar = String(x.bar);
+  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  const date = String(x.date || ''), tbl = String(x.tbl || '').trim(), time = String(x.time || '').trim();
+  const name = String(x.name || '').trim().slice(0, 80), guests = String(x.guests || '').trim().slice(0, 10);
+  const label = String(x.tlabel || '').trim().slice(0, 40) || tableName_(tbl);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Нет даты');
+  if (!tbl) throw new Error('Нет стола');
+  if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('Время в формате 19:30');
+  if (!name) throw new Error('Нужно имя гостя');
+  if (guests && !/^\d{1,3}$/.test(guests)) throw new Error('Гостей — числом');
+  const s = sh_('bookings');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let isNew = false, res, cur = null;
+  try {
+    const all = bookRows_();
+    cur = x.id ? all.filter(function (r) { return +r.id === +x.id && String(r.bar) === bar; })[0] : null;
+    if (x.id && !cur) throw new Error('Бронь уже снята или изменена — обновите экран');
+    if (date < todayIso_() && (!cur || String(cur.date) !== date)) throw new Error('Нельзя бронировать на прошедшую дату');
+    if (all.some(function (r) { return String(r.bar) === bar && String(r.date) === date && String(r.tbl) === tbl && +r.id !== +x.id; }))
+      throw new Error('Этот стол на эту дату уже забронирован');
+    const vals = [bar, date, tbl, time, guests, name, String(x.phone || '').trim().slice(0, 30), String(x.note || '').trim().slice(0, 200)];
+    if (cur) {
+      s.getRange(cur._row, 2, 1, vals.length).setValues([vals]);
+      res = bookPub_(rows_(s, B_COLS).filter(function (r) { return +r.id === +x.id; })[0]);
+    } else {
+      const id = rows_(s, B_COLS).reduce(function (m, r) { return Math.max(m, +r.id || 0); }, 0) + 1;
+      s.appendRow([id].concat(vals).concat([me.id, me.name, new Date(), true]));
+      isNew = true;
+      res = bookPub_({ id: id, bar: bar, date: date, tbl: tbl, time: time, guests: guests, name: name, phone: vals[6], note: vals[7], uname: me.name, uid: me.id });
+    }
+  } finally { lock.releaseLock(); }
+  try {
+    const d = date.slice(8) + '.' + date.slice(5, 7);
+    const line = d + ', ' + label + ', ' + time + (guests ? ', ' + guests + ' чел.' : '') + ' — ' + name;
+    if (isNew) sendTo_(audience_(me, bar, 'book'), '📅 Новая бронь · ' + BARS[bar], line, APP_URL + '#book-' + bar);
+    else if (cur && +cur.uid && +cur.uid !== me.id) sendTo_([+cur.uid], '✏️ Бронь изменена · ' + BARS[bar], me.name + ': ' + line, APP_URL + '#book-' + bar);
+  } catch (e) { console.warn('push', e); }
+  return res;
+}
+function tableName_(t) { return /^\d+$/.test(t) ? 'стол' : t; }
+/** Снятие брони: запись остаётся в таблице с отметкой, кто и когда снял; автору брони приходит уведомление. */
+function bookDel_(me, id, bar, tlabel) {
+  if (me.bars.indexOf(String(bar)) < 0) throw new Error('forbidden');
+  const s = sh_('bookings');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let r;
+  try {
+    r = bookRows_().filter(function (x) { return +x.id === +id && String(x.bar) === String(bar); })[0];
+    if (r) {
+      s.getRange(r._row, B_COLS.indexOf('active') + 1).setValue(false);
+      s.getRange(r._row, B_COLS.indexOf('deluid') + 1, 1, 3).setValues([[me.id, me.name, new Date()]]);
+    }
+  } finally { lock.releaseLock(); }
+  if (r && +r.uid && +r.uid !== me.id) {
+    try {
+      const d = String(r.date).slice(8) + '.' + String(r.date).slice(5, 7);
+      sendTo_([+r.uid], '🗑 Бронь снята · ' + BARS[bar], me.name + ': ' + d + ', ' + (String(tlabel || '') || tableName_(String(r.tbl))) + ', ' + r.time + ' — ' + r.name, APP_URL + '#book-' + bar);
+    } catch (e) { console.warn('push', e); }
+  }
+  return true;
+}
+
+/* ================= «Моя ЗПшечка» ================= */
+// Пароли баров от «Моей ЗПшечки» лежат в свойствах скрипта ZP_13 и ZP_EPO (не в коде).
+function zpKeys_(me) {
+  if (!(me.zp || me.admin)) throw new Error('forbidden');
+  const out = {};
+  const adm = me.admin && P.getProperty('ZP_ADMIN'); // общий пароль владельца — открывает оба бара и поваров
+  if (adm) { out['13'] = adm; out.epo = adm; return out; }
+  me.bars.forEach(function (b) { const v = P.getProperty(b === 'epo' ? 'ZP_EPO' : 'ZP_13'); if (v) out[b] = v; });
+  return out;
+}
+/**
+ * Рабочий чат баров — сервер (Google Apps Script).
+ * Хранит сообщения в таблице «Рабочий чат», фото чеков — в папке «Рабочий чат» на Google Диске,
+ * проблемы дописывает в «список дел» таблицы «заказ пива» (её же читает «Пульт баров»).
+ *
+ * Установка: новый проект на script.google.com → вставить этот код → выполнить функцию setup()
+ * → Развернуть → Новое развертывание → Веб-приложение, «Запуск от имени: Я», «Доступ: Все».
+ */
+const DELA_SHEET_ID = '1CxNqSS83GgoHtCjlSD7lNwgetEDh5qSvUzuoDR4Va0w'; // «заказ пива»
+const DELA_TAB = 'список дел';
+const TZ = 'Europe/Moscow';
+const BARS = { '13': '13шка', epo: 'ЕпО' };
 const CH = { prob: 'Проблемы', ask: 'Вопросы' };
 const APP_URL = 'https://antonsmirnovn-ux.github.io/pult-barov/chat/';
 const M_COLS = ['id', 'ts', 'upd', 'bar', 'ch', 'uid', 'name', 'text', 'photo', 'tag', 'status', 'note', 'cid'];
