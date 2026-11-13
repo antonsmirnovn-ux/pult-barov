@@ -349,6 +349,7 @@ function checkStatuses_() {
 function adminIds_() { return users_().filter(function (u) { return u.admin || u.helper; }).map(function (u) { return u.id; }); }
 
 function notifyNew_(me, bar, ch, text, hasPhoto) {
+  if (ch === 'shift') return; // о закрытии смен уведомления не шлём
   const users = users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0; });
   const to = users.filter(function (u) { return ch !== 'shift' || u.admin || u.helper; }).map(function (u) { return u.id; });
   if (!to.length) return;

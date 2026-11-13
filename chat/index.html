@@ -133,7 +133,7 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 <input type="file" id="cam" accept="image/*" capture="environment" hidden>
 <script>
 "use strict";
-const APP_VERSION = "4";
+const APP_VERSION = "5";
 const CFG = self.CHAT_CFG || {};
 const API = CFG.api;
 const BARS = {"13":"13шка", epo:"ЕпО"};
@@ -393,7 +393,7 @@ function renderUsers(){
     h+='<div class="cap">'+BARS[b]+'</div><div class="grp">'+(list.length?list.map(u=>'<button class="row" data-uid="'+u.id+'"><span class="l">'+esc(u.name)+(u.admin?' <span class="r">· админ</span>':u.helper?' <span class="r">· помощник</span>':'')+'</span><span class="r">PIN '+esc(u.pin)+' ›</span></button>').join(""):'<div class="row"><span class="l r">Пока никого</span></div>')+'</div>';
   });
   h+='<div class="grp"><button class="row act" data-a="uadd">+ Добавить сотрудника</button></div>';
-  h+='<div class="note" style="margin-top:0">Сотрудник входит по своему PIN. Помощник и админ получают уведомления о закрытии смен и решённых проблемах. Только админ управляет сотрудниками и видит PIN-коды.</div></div>';
+  h+='<div class="note" style="margin-top:0">Сотрудник входит по своему PIN. Помощник и админ получают уведомления о решённых проблемах. Только админ управляет сотрудниками и видит PIN-коды.</div></div>';
   f.innerHTML=h;
 }
 function roleOf(u){ return u.admin?"admin":u.helper?"helper":"staff"; }
@@ -406,7 +406,7 @@ function userForm(u){
     '<label class="row"><span class="l">13шка</span><input class="chk" type="checkbox" name="b13"'+(u.bars&&u.bars.indexOf("13")>=0?" checked":"")+'></label>'+
     '<label class="row"><span class="l">ЕпО</span><input class="chk" type="checkbox" name="bepo"'+(u.bars&&u.bars.indexOf("epo")>=0?" checked":"")+'></label>'+
     '</div><div class="cap">Роль</div><div class="grp">'+
-    [["staff","Сотрудник","чаты своего бара"],["helper","Помощник","+ уведомления о сменах и решённых проблемах"],["admin","Админ","+ управление сотрудниками и PIN-кодами"]].map(([v,t,d])=>'<label class="row"><span class="l">'+t+'<br><span class="r" style="font-size:13px">'+d+'</span></span><input class="chk" type="radio" name="role" value="'+v+'"'+(roleOf(u)===v?" checked":"")+'></label>').join("")+'</div>'+
+    [["staff","Сотрудник","чаты своего бара"],["helper","Помощник","+ уведомления о решённых проблемах"],["admin","Админ","+ управление сотрудниками и PIN-кодами"]].map(([v,t,d])=>'<label class="row"><span class="l">'+t+'<br><span class="r" style="font-size:13px">'+d+'</span></span><input class="chk" type="radio" name="role" value="'+v+'"'+(roleOf(u)===v?" checked":"")+'></label>').join("")+'</div>'+
     '<div class="err" id="uerr"></div>'+
     '<div class="grp"><button class="row act" type="submit"><b>Сохранить</b></button></div>'+
     (u.id&&u.id!==st.me.id?'<div class="grp"><button class="row del" type="button" data-a="udel">Удалить сотрудника</button></div>':'')+
