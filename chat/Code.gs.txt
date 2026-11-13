@@ -13,7 +13,8 @@ const BARS = { '13': '13шка', epo: 'ЕпО' };
 const CH = { prob: 'Проблемы', ask: 'Вопросы', shift: 'Смены' };
 const APP_URL = 'https://antonsmirnovn-ux.github.io/pult-barov/chat/';
 const M_COLS = ['id', 'ts', 'upd', 'bar', 'ch', 'uid', 'name', 'text', 'photo', 'tag', 'status', 'note'];
-const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active'];
+const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active', 'zp'];
+const B_COLS = ['id', 'bar', 'date', 'tbl', 'time', 'guests', 'name', 'phone', 'note', 'uid', 'uname', 'ts', 'active'];
 const P = PropertiesService.getScriptProperties();
 
 /* ================= установка ================= */
@@ -24,17 +25,19 @@ function setup() {
     ss = SpreadsheetApp.create('Рабочий чат');
     P.setProperty('DB_ID', ss.getId());
   }
-  const need = { msgs: M_COLS, users: U_COLS, push: ['uid', 'fcm', 'ts'] };
+  const need = { msgs: M_COLS, users: U_COLS, push: ['uid', 'fcm', 'ts'], bookings: B_COLS };
   Object.keys(need).forEach(function (n) {
     let s = ss.getSheetByName(n);
     if (!s) s = ss.insertSheet(n);
     if (!s.getLastRow()) s.appendRow(need[n]);
+    else if (s.getLastColumn() < need[n].length) s.getRange(1, 1, 1, need[n].length).setValues([need[n]]);
     s.setFrozenRows(1);
   });
   const def = ss.getSheetByName('Sheet1') || ss.getSheetByName('Лист1');
   if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
   ss.getSheetByName('users').getRange('C:C').setNumberFormat('@');
-  ss.getSheetByName('msgs').getRange('H:L').setNumberFormat('@'); // текст, даты «13.11» и т.п. не превращаются в числа
+  ss.getSheetByName('msgs').getRange('H:L').setNumberFormat('@');
+  ss.getSheetByName('bookings').getRange('B:I').setNumberFormat('@'); // текст, даты «13.11» и т.п. не превращаются в числа
   // первый админ — владелец. PIN поменяйте в приложении (Ещё → Сотрудники).
   const u = ss.getSheetByName('users');
   if (u.getLastRow() < 2) u.appendRow([1, 'Антон', '1313', 'both', true, '', true]);
@@ -88,6 +91,10 @@ function route_(b) {
     case 'users': admin_(me); return listUsers_(true);
     case 'user_save': admin_(me); return userSave_(me, b.user);
     case 'user_del': admin_(me); return userDel_(b.id);
+    case 'book_list': return bookList_(me, b);
+    case 'book_save': return bookSave_(me, b.book);
+    case 'book_del': return bookDel_(me, b.id, b.bar);
+    case 'zp_keys': return zpKeys_(me);
   }
   throw new Error('bad_op');
 }
@@ -106,12 +113,12 @@ function users_() {
   const c = CacheService.getScriptCache(), hit = c.get('users');
   if (hit) return JSON.parse(hit);
   const list = rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; })
-    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', token: String(u.token || ''), _row: u._row }; });
+    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, token: String(u.token || ''), _row: u._row }; });
   c.put('users', JSON.stringify(list), 300);
   return list;
 }
 function barsOf_(v) { v = String(v || '').toLowerCase(); return v === 'both' || v === 'оба' ? ['13', 'epo'] : (v.indexOf('epo') >= 0 || v.indexOf('епо') >= 0 ? ['epo'] : ['13']); }
-function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper }; }
+function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper, zp: u.zp || u.admin }; }
 function dropCache_() { CacheService.getScriptCache().remove('users'); }
 
 function login_(pin) {
@@ -136,7 +143,7 @@ function admin_(me) { if (!me.admin) throw new Error('forbidden'); }
 
 function listUsers_(withPins) {
   return rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; }).map(function (u) {
-    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper' };
+    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true };
     if (withPins) o.pin = String(u.pin);
     return o;
   });
@@ -157,10 +164,11 @@ function userSave_(me, x) {
       const pinChanged = String(cur.pin) !== pin;
       if (+cur.id === me.id && role !== true) throw new Error('Нельзя снять админа с самого себя');
       s.getRange(cur._row, 2, 1, 4).setValues([[name, pin, bars, role]]);
+      s.getRange(cur._row, 8).setValue(!!x.zp);
       if (pinChanged) s.getRange(cur._row, 6).setValue(''); // старый вход сбрасывается
     } else {
       const id = all.reduce(function (m, u) { return Math.max(m, +u.id || 0); }, 0) + 1;
-      s.appendRow([id, name, pin, bars, role, '', true]);
+      s.appendRow([id, name, pin, bars, role, '', true, !!x.zp]);
     }
   } finally { lock.releaseLock(); }
   dropCache_();
@@ -400,3 +408,72 @@ function sendTo_(uids, title, body, link) {
 
 /** Проверка уведомлений из редактора: отправит тест всем админам. */
 function testPush() { sendTo_(adminIds_(), 'Рабочий чат', 'Тест уведомлений', APP_URL); }
+
+/* ================= бронь столов ================= */
+function bookRows_() { return rows_(sh_('bookings'), B_COLS).filter(function (r) { return r.id !== '' && r.active !== false; }); }
+function bookPub_(r) {
+  return { id: +r.id, bar: String(r.bar), date: String(r.date), tbl: String(r.tbl), time: String(r.time), guests: String(r.guests),
+    name: String(r.name), phone: String(r.phone || ''), note: String(r.note || ''), uname: String(r.uname || '') };
+}
+function bookList_(me, b) {
+  const bar = String(b.bar);
+  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  const from = String(b.from || ''), to = String(b.to || '9999');
+  return bookRows_().filter(function (r) { return String(r.bar) === bar && String(r.date) >= from && String(r.date) <= to; }).map(bookPub_);
+}
+function bookSave_(me, x) {
+  x = x || {};
+  const bar = String(x.bar);
+  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  const date = String(x.date || ''), tbl = String(x.tbl || '').trim(), time = String(x.time || '').trim();
+  const name = String(x.name || '').trim().slice(0, 80), guests = String(x.guests || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Нет даты');
+  if (!tbl) throw new Error('Нет стола');
+  if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('Время в формате 19:30');
+  if (!name) throw new Error('Нужно имя гостя');
+  const s = sh_('bookings');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let isNew = false, res;
+  try {
+    const all = bookRows_();
+    if (all.some(function (r) { return String(r.bar) === bar && String(r.date) === date && String(r.tbl) === tbl && +r.id !== +x.id; }))
+      throw new Error('Этот стол на эту дату уже забронирован');
+    const vals = [bar, date, tbl, time, guests, name, String(x.phone || '').trim().slice(0, 30), String(x.note || '').trim().slice(0, 200)];
+    const cur = x.id ? all.filter(function (r) { return +r.id === +x.id; })[0] : null;
+    if (cur) {
+      s.getRange(cur._row, 2, 1, vals.length).setValues([vals]);
+      res = bookPub_(rows_(s, B_COLS).filter(function (r) { return +r.id === +x.id; })[0]);
+    } else {
+      const id = rows_(s, B_COLS).reduce(function (m, r) { return Math.max(m, +r.id || 0); }, 0) + 1;
+      s.appendRow([id].concat(vals).concat([me.id, me.name, new Date(), true]));
+      isNew = true;
+      res = bookPub_({ id: id, bar: bar, date: date, tbl: tbl, time: time, guests: guests, name: name, phone: vals[6], note: vals[7], uname: me.name });
+    }
+  } finally { lock.releaseLock(); }
+  if (isNew) {
+    try {
+      const to = users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0; }).map(function (u) { return u.id; });
+      const d = date.slice(8) + '.' + date.slice(5, 7);
+      sendTo_(to, '📅 Новая бронь · ' + BARS[bar], d + ', ' + tableName_(tbl) + ', ' + time + (guests ? ', ' + guests + ' чел.' : '') + ' — ' + name, APP_URL + '#book-' + bar);
+    } catch (e) { console.warn('push', e); }
+  }
+  return res;
+}
+function tableName_(t) { return /^\d+$/.test(t) ? 'стол ' + t : t; }
+function bookDel_(me, id, bar) {
+  if (me.bars.indexOf(String(bar)) < 0) throw new Error('forbidden');
+  const s = sh_('bookings'), r = bookRows_().filter(function (x) { return +x.id === +id && String(x.bar) === String(bar); })[0];
+  if (r) s.getRange(r._row, B_COLS.indexOf('active') + 1).setValue(false);
+  return true;
+}
+
+/* ================= «Моя ЗПшечка» ================= */
+// Пароли баров от «Моей ЗПшечки» лежат в свойствах скрипта ZP_13 и ZP_EPO (не в коде).
+function zpKeys_(me) {
+  if (!(me.zp || me.admin)) throw new Error('forbidden');
+  const out = {};
+  const adm = me.admin && P.getProperty('ZP_ADMIN'); // общий пароль владельца — открывает оба бара и поваров
+  if (adm) { out['13'] = adm; out.epo = adm; return out; }
+  me.bars.forEach(function (b) { const v = P.getProperty(b === 'epo' ? 'ZP_EPO' : 'ZP_13'); if (v) out[b] = v; });
+  return out;
+}
