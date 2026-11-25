@@ -13,7 +13,7 @@ const BARS = { '13': '13шка', epo: 'ЕпО' };
 const CH = { prob: 'Проблемы' }; // «Вопросы» и «Смены» убраны: приложение только для рабочих задач
 const APP_URL = 'https://antonsmirnovn-ux.github.io/pult-barov/chat/';
 const M_COLS = ['id', 'ts', 'upd', 'bar', 'ch', 'uid', 'name', 'text', 'photo', 'tag', 'status', 'note', 'cid', 'files'];
-const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active', 'zp', 'mute'];
+const U_COLS = ['id', 'name', 'pin', 'bars', 'admin', 'token', 'active', 'zp', 'mute', 'access'];
 const B_COLS = ['id', 'bar', 'date', 'tbl', 'time', 'guests', 'name', 'phone', 'note', 'uid', 'uname', 'ts', 'active', 'deluid', 'delname', 'delts'];
 const MUTE_KINDS = ['prob', 'book']; // какие уведомления можно выключить
 const MAX_FILES = 6, MAX_FILE_MB = 10; // вложений в одной проблеме и размер одного файла
@@ -95,7 +95,7 @@ function subFolder_(parent, name) {
 }
 
 /* ================= HTTP ================= */
-function doGet(e) { return out_({ ok: true, data: 'Рабочий чат: сервер работает' }); }
+function doGet(e) { return out_({ ok: true, data: 'Рабочий чат: сервер работает', sectionAccessVersion: 1 }); }
 
 function doPost(e) {
   let res;
@@ -122,6 +122,7 @@ function route_(b) {
     case 'push_unreg': return pushUnreg_(me, b.fcm);
     case 'push_test': sendTo_([me.id], 'Рабочий чат', 'Уведомления работают 👍', APP_URL); return true;
     case 'mute': return muteSet_(me, b.mute);
+    case 'access_save': admin_(me); return saveSectionAccess_(b.user);
     case 'users': admin_(me); return listUsers_(true);
     case 'user_save': admin_(me); return userSave_(me, b.user);
     case 'user_del': admin_(me); return userDel_(b.id);
@@ -143,18 +144,62 @@ function rows_(s, cols) {
     return o;
   });
 }
-function users_() {
-  const c = CacheService.getScriptCache(), hit = c.get('users');
+function users_(fresh) {
+  const c = CacheService.getScriptCache(), hit = !fresh && c.get('users-v2');
   if (hit) return JSON.parse(hit);
   const list = rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; })
-    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, token: String(u.token || ''), mute: muteOf_(u.mute), _row: u._row }; });
-  c.put('users', JSON.stringify(list), 300);
+    .map(function (u) { return { id: +u.id, name: String(u.name), pin: String(u.pin), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, token: String(u.token || ''), mute: muteOf_(u.mute), access: readSectionAccess_(u.access), _row: u._row }; });
+  if (!fresh) c.put('users-v2', JSON.stringify(list), 60);
   return list;
 }
 function barsOf_(v) { v = String(v || '').toLowerCase(); return v === 'both' || v === 'оба' ? ['13', 'epo'] : (v.indexOf('epo') >= 0 || v.indexOf('епо') >= 0 ? ['epo'] : ['13']); }
 function muteOf_(v) { return String(v || '').split(',').filter(function (k) { return MUTE_KINDS.indexOf(k) >= 0; }); }
-function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper, zp: u.zp || u.admin, mute: u.mute || [] }; }
-function dropCache_() { CacheService.getScriptCache().remove('users'); }
+function pub_(u) { return { id: u.id, name: u.name, bars: u.bars, admin: u.admin, helper: u.helper, zp: u.zp || u.admin, mute: u.mute || [], access: u.access }; }
+function dropCache_() { CacheService.getScriptCache().removeAll(['users', 'users-v2']); }
+
+const ACCESS_MODE = ['none', 'read', 'write'];
+function checkedSectionAccess_(value) {
+  if (!value || ACCESS_MODE.indexOf(value.issues) < 0 || ACCESS_MODE.indexOf(value.booking) < 0)
+    throw new Error('Выберите права для обоих разделов');
+  return { issues: value.issues, booking: value.booking };
+}
+function readSectionAccess_(value) {
+  if (!value) return { issues: 'write', booking: 'write' };
+  try { return checkedSectionAccess_(JSON.parse(String(value))); }
+  catch (_) { return { issues: 'none', booking: 'none' }; }
+}
+function hasSection_(u, section, write) {
+  const mode = (u.access || readSectionAccess_(''))[section];
+  return mode === 'write' || (!write && mode === 'read');
+}
+function hasBarSection_(u, bar, section, write) {
+  return u.bars.indexOf(String(bar)) >= 0 && hasSection_(u, section, write);
+}
+function requireBarSection_(u, bar, section, write) {
+  if (!hasBarSection_(u, bar, section, write)) throw new Error('forbidden');
+}
+
+function saveSectionAccess_(change) {
+  const access = checkedSectionAccess_(change && change.access);
+  const id = Number(change.id);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = sh_('users');
+    const user = rows_(sheet, U_COLS).find(function (entry) {
+      return Number(entry.id) === id && entry.id !== '' && entry.active !== false;
+    });
+    if (!user) throw new Error('Сотрудник не найден');
+    const column = U_COLS.indexOf('access') + 1;
+    const header = sheet.getRange(1, column);
+    if (header.getValue() === '') header.setValue('access');
+    else if (header.getValue() !== 'access') throw new Error('Название колонки прав доступа не совпадает');
+    sheet.getRange(user._row, column).setValue(JSON.stringify(access));
+    SpreadsheetApp.flush();
+    dropCache_();
+    return listUsers_(false);
+  } finally { lock.releaseLock(); }
+}
 
 // Защита от подбора PIN: после 10 неудачных попыток за 15 минут вход закрывается на 15 минут для всех.
 const LOGIN_MAX_FAILS = 10, LOGIN_WINDOW_S = 900;
@@ -173,7 +218,7 @@ function login_(pin) {
   pin = String(pin || '').trim();
   if (!pin) throw new Error('bad_pin');
   if (loginFails_() >= LOGIN_MAX_FAILS) throw new Error('locked');
-  const u = users_().filter(function (x) { return x.pin === pin; })[0];
+  const u = users_(true).filter(function (x) { return x.pin === pin; })[0];
   if (!u) { loginFail_(); Utilities.sleep(1500); throw new Error('bad_pin'); }
   let tok = u.token;
   if (!tok) {
@@ -184,7 +229,7 @@ function login_(pin) {
   return { token: tok, me: pub_(u) };
 }
 function auth_(tok) {
-  const u = tok && users_().filter(function (x) { return x.token && x.token === tok; })[0];
+  const u = tok && users_(true).filter(function (x) { return x.token && x.token === tok; })[0];
   if (!u) throw new Error('auth');
   return u;
 }
@@ -192,7 +237,7 @@ function admin_(me) { if (!me.admin) throw new Error('forbidden'); }
 
 function listUsers_(withPins) {
   return rows_(sh_('users'), U_COLS).filter(function (u) { return u.id !== '' && u.active !== false; }).map(function (u) {
-    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true };
+    const o = { id: +u.id, name: String(u.name), bars: barsOf_(u.bars), admin: u.admin === true, helper: String(u.admin) === 'helper', zp: u.zp === true, access: readSectionAccess_(u.access) };
     if (withPins) o.pin = String(u.pin);
     return o;
   });
@@ -242,7 +287,8 @@ function sync_(me, b) {
   maybeStatuses_();
   const since = +b.since || 0, ver = verGet_();
   const res = { me: pub_(me), ver: ver, msgs: [] };
-  if (b.withUsers) res.people = listUsers_(false);
+  if (b.withUsers && me.admin) res.people = listUsers_(false);
+  if (!hasSection_(me, 'issues', false)) return res;
   if (since && since >= ver) return res;
   const s = sh_('msgs'), last = s.getLastRow();
   if (last < 2) return res;
@@ -302,14 +348,17 @@ function delaLine_(bar, name, text, files, tag) {
 
 function post_(me, b) {
   const bar = String(b.bar), ch = String(b.ch || 'prob');
-  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  requireBarSection_(me, bar, 'issues', true);
   if (!CH[ch]) throw new Error('bad_ch');
   const text = String(b.text || '').trim().slice(0, 2000);
   let list = Array.isArray(b.files) ? b.files : [];
   if (b.photo) list = [{ name: 'фото.jpg', data: b.photo }].concat(list); // старые версии приложения
   if (!text && !list.length) throw new Error('empty');
   const cid = String(b.cid || '').replace(/[^\w-]/g, '').slice(0, 40);
-  if (cid) { const ex = findByCid_(sh_('msgs'), cid); if (ex) return msg_(ex); }
+  if (cid) { const ex = findByCid_(sh_('msgs'), cid); if (ex) {
+      if (String(ex[3]) !== bar || +ex[5] !== me.id) throw new Error('forbidden');
+      return msg_(ex);
+    } }
 
   const files = saveFiles_(me, bar, list);
   const firstImg = (files.filter(function (f) { return /^image\//.test(f.type); })[0] || {}).id || '';
@@ -318,7 +367,10 @@ function post_(me, b) {
   let row;
   try {
     const s = sh_('msgs'), last = s.getLastRow();
-    if (cid) { const ex = findByCid_(s, cid); if (ex) return msg_(ex); } // пока ждали блокировку, первая попытка успела сохраниться
+    if (cid) { const ex = findByCid_(s, cid); if (ex) {
+      if (String(ex[3]) !== bar || +ex[5] !== me.id) throw new Error('forbidden');
+      return msg_(ex);
+    } } // пока ждали блокировку, первая попытка успела сохраниться
     const id = last >= 2 ? (+s.getRange(last, 1).getValue() || last) + 1 : 1;
     const now = new Date(), upd = Math.max(Date.now(), verGet_() + 1);
     const tag = 'п' + id, date = Utilities.formatDate(now, TZ, 'dd.MM');
@@ -340,6 +392,7 @@ function findMsgRow_(s, id) {
 }
 // Менять и удалять может автор, пока проблема не закрыта, и админ — всегда.
 function canChange_(me, v) {
+  if (!hasBarSection_(me, v[3], 'issues', true)) return false;
   if (me.admin) return true;
   if (+v[5] !== me.id) return false;
   return ['done', 'skip', 'gone', 'del'].indexOf(String(v[10])) < 0;
@@ -389,7 +442,7 @@ function delMsg_(me, id) {
   try {
     const s = sh_('msgs');
     r = findMsgRow_(s, id); v = s.getRange(r, 1, 1, M_COLS.length).getValues()[0];
-    if (v[10] === 'del') return msg_(v);
+    if (v[10] === 'del') { requireBarSection_(me, v[3], 'issues', true); return msg_(v); }
     if (!canChange_(me, v)) throw new Error(+v[5] === me.id ? 'closed' : 'forbidden');
     const upd = bumpRow_(s, r);
     s.getRange(r, 11).setValue('del');
@@ -411,7 +464,11 @@ function photo_(me, id) {
   const s = sh_('msgs');
   let hit = s.getRange('I:I').createTextFinder(id).matchEntireCell(true).findNext();
   if (!hit) hit = s.getRange(1, M_COLS.indexOf('files') + 1, s.getMaxRows(), 1).createTextFinder('"' + id + '"').findNext();
-  if (!hit || me.bars.indexOf(String(s.getRange(hit.getRow(), 4).getValue())) < 0) throw new Error('forbidden');
+  if (!hit) throw new Error('forbidden');
+  const row = s.getRange(hit.getRow(), 1, 1, M_COLS.length).getValues()[0];
+  requireBarSection_(me, row[3], 'issues', false);
+  if (String(row[10]) === 'del' || !msg_(row).files.some(function (file) { return file.id === id; }))
+    throw new Error('forbidden');
   const b = DriveApp.getFileById(id).getBlob();
   return 'data:' + b.getContentType() + ';base64,' + Utilities.base64Encode(b.getBytes());
 }
@@ -506,7 +563,7 @@ function checkStatuses_() {
 function adminIds_(bar) { return users_().filter(function (u) { return (u.admin || u.helper) && (!bar || u.bars.indexOf(bar) >= 0); }).map(function (u) { return u.id; }); }
 /** Сотрудники бара, кроме автора, у которых этот вид уведомлений не выключен. */
 function audience_(me, bar, kind) {
-  return users_().filter(function (u) { return u.id !== me.id && u.bars.indexOf(bar) >= 0 && (u.mute || []).indexOf(kind) < 0; }).map(function (u) { return u.id; });
+  return users_().filter(function (u) { return u.id !== me.id && hasBarSection_(u, bar, kind === 'book' ? 'booking' : 'issues', false) && (u.mute || []).indexOf(kind) < 0; }).map(function (u) { return u.id; });
 }
 
 function notifyNew_(me, bar, ch, text, hasPhoto) {
@@ -550,6 +607,15 @@ function pushUnreg_(me, fcm) {
 const FCM_PROJECT = 'rabochiy-chat'; // проект Firebase
 
 function sendTo_(uids, title, body, link) {
+  const target = /#(prob|book)-(13|epo)$/.exec(String(link || ''));
+  if (target) {
+    const section = target[1] === 'prob' ? 'issues' : 'booking';
+    const permitted = users_(true).filter(function (u) {
+      return hasBarSection_(u, target[2], section, false);
+    }).map(function (u) { return u.id; });
+    uids = uids.filter(function (uid) { return permitted.indexOf(uid) >= 0; });
+  }
+
   if (!uids.length) return;
   const s = sh_('push'), rows = rows_(s, ['uid', 'fcm', 'ts']).filter(function (r) { return uids.indexOf(+r.uid) >= 0 && r.fcm; });
   if (!rows.length) return;
@@ -596,7 +662,7 @@ function bookPub_(r) {
 }
 function bookList_(me, b) {
   const bar = String(b.bar);
-  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  requireBarSection_(me, bar, 'booking', false);
   const from = String(b.from || ''), to = String(b.to || '9999');
   return bookRows_().filter(function (r) { return String(r.bar) === bar && String(r.date) >= from && String(r.date) <= to; }).map(bookPub_);
 }
@@ -604,7 +670,7 @@ function todayIso_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd')
 function bookSave_(me, x) {
   x = x || {};
   const bar = String(x.bar);
-  if (me.bars.indexOf(bar) < 0) throw new Error('forbidden');
+  requireBarSection_(me, bar, 'booking', true);
   const date = String(x.date || ''), tbl = String(x.tbl || '').trim(), time = String(x.time || '').trim();
   const name = String(x.name || '').trim().slice(0, 80), guests = String(x.guests || '').trim().slice(0, 10);
   const label = String(x.tlabel || '').trim().slice(0, 40) || tableName_(tbl);
@@ -645,7 +711,7 @@ function bookSave_(me, x) {
 function tableName_(t) { return /^\d+$/.test(t) ? 'стол' : t; }
 /** Снятие брони: запись остаётся в таблице с отметкой, кто и когда снял; автору брони приходит уведомление. */
 function bookDel_(me, id, bar, tlabel) {
-  if (me.bars.indexOf(String(bar)) < 0) throw new Error('forbidden');
+  requireBarSection_(me, bar, 'booking', true);
   const s = sh_('bookings');
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   let r;
