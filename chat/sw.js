@@ -1,5 +1,5 @@
 // Рабочий чат: оболочка приложения + push-уведомления (Firebase Cloud Messaging).
-const CACHE = "chat-v12";
+const CACHE = "chat-v13";
 const SHELL = ["./", "index.html", "config.js", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 
@@ -17,7 +17,7 @@ if (CFG.firebase && CFG.firebase.apiKey) {
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== "chat-photos").map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && /^chat-v\d+$/.test(k)).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);

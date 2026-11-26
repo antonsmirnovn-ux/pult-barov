@@ -178,7 +178,7 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 <input type="file" id="file2" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple hidden>
 <script>
 "use strict";
-const APP_VERSION = "12";
+const APP_VERSION = "13";
 const CFG = self.CHAT_CFG || {};
 const API = CFG.api;
 const BARS = {"13":"13шка", epo:"ЕпО"};
@@ -198,15 +198,45 @@ const isCh = c=>CHS.some(x=>x[0]===c);
 /* ---------- хранилище ---------- */
 const ls = { get(k,d){ try{ const v=localStorage.getItem("chat-"+k); return v==null?d:JSON.parse(v);}catch(_){return d;} },
              set(k,v){ try{ localStorage.setItem("chat-"+k,JSON.stringify(v)); return true; }catch(_){ return false; } } };
+const SESSION_KEY = "chat-session-v1";
+function validSession(s){
+  return s&&typeof s.token==="string"&&s.token&&s.me&&Array.isArray(s.me.bars)?s:null;
+}
+function readChatSession(){
+  try{
+    const raw=localStorage.getItem(SESSION_KEY);
+    if(raw!==null) return validSession(JSON.parse(raw));
+  }catch(_){}
+  try{
+    const raw=sessionStorage.getItem(SESSION_KEY);
+    if(raw!==null) return validSession(JSON.parse(raw));
+  }catch(_){}
+  // Подхватываем действующий вход, сохранённый предыдущей версией.
+  return validSession({token:ls.get("token",""),me:ls.get("me",null)});
+}
+function saveChatSession(session){
+  const raw=JSON.stringify(session);
+  try{
+    localStorage.setItem(SESSION_KEY,raw);
+    try{ sessionStorage.removeItem(SESSION_KEY); }catch(_){}
+  }catch(_){
+    try{ sessionStorage.setItem(SESSION_KEY,raw); }catch(_){}
+  }
+  if(session){ ls.set("token",session.token); ls.set("me",session.me); }
+}
+const initialSession=readChatSession();
 const st = {
-  token: ls.get("token",""), me: ls.get("me",null), ver: ls.get("ver",0),
+  token: initialSession?.token||"", me: initialSession?.me||null, ver: initialSession?ls.get("ver",0):0,
   msgs: new Map(), bar: ls.get("bar","13"), ch: ls.get("ch","prob"), view: "chat",
-  seen: ls.get("seen",{}), people: [], online: true, draft: {}, atts: {}, users: null, edit: null, err: "",
-  out: ls.get("out",[]),           // очередь неотправленных: переживает перезапуск
+  seen: initialSession?ls.get("seen",{}):{}, people: [], online: true, draft: {}, atts: {}, users: null, edit: null, err: "",
+  out: initialSession?ls.get("out",[]):[], // очередь неотправленных: переживает перезапуск
   books: [], bday: null, bedit: null, bookLoaded: {}, updReady: false
 };
 if(!isCh(st.ch)) st.ch="prob";
-(ls.get("cache",[])||[]).forEach(m=>{ if(isCh(m.ch)) st.msgs.set(m.id,m); });
+if(initialSession){
+  saveChatSession(initialSession);
+  (ls.get("cache",[])||[]).forEach(m=>{ if(isCh(m.ch)) st.msgs.set(m.id,m); });
+}
 st.out.forEach(o=>st.msgs.set("t"+o.cid, tmpMsg(o)));
 
 const esc = s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -235,16 +265,18 @@ function humanError(e){
 }
 async function call(op, body, ms){
   if(!API) throw new Error("Приложение ещё не подключено к серверу");
+  const requestToken=st.token;
   const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(), ms||25000);
   let j;
   try{
-    const r = await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(Object.assign({op,token:st.token},body||{})),redirect:"follow",signal:ctl.signal});
+    const r = await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(Object.assign({op,token:requestToken},body||{})),redirect:"follow",signal:ctl.signal});
     const t = await r.text();
     try{ j=JSON.parse(t); }catch(_){ const er=new Error("Сервер Google временно недоступен. Попробуйте через минуту"); er.plain=true; throw er; }
   }catch(e){ if(e.plain) throw e; const er=new Error(humanError(e)); er.net=true; throw er; }
   finally{ clearTimeout(timer); }
+  if(op!=="login"&&requestToken!==st.token) throw new Error("Сеанс изменился");
   if(!j.ok){
-    if(j.error==="auth"){ logout(true); }
+    if(j.error==="auth"&&op!=="login"){ logout(true); }
     throw new Error(humanError(j.error));
   }
   return j.data;
@@ -257,7 +289,8 @@ async function sync(){
   try{
     const d = await call("sync",{since:st.ver,withUsers:firstSync});
     firstSync=false;
-    st.me=d.me; ls.set("me",d.me);
+    st.me=d.me;
+    if(readChatSession()?.token===st.token) saveChatSession({token:st.token,me:d.me});
     if(!st.me.zp) forgetZp();
     if(d.people) st.people=d.people;
     if(st.me.bars.indexOf(st.bar)<0){ st.bar=st.me.bars[0]; }
@@ -322,7 +355,7 @@ function render(){
 
 function loginHtml(){
   return '<div class="login"><img src="icon-192.png" alt=""><h2>Рабочий чат</h2><p>13шка · Ещё по одной</p>'+
-    (API?'<form id="loginF"><p style="margin-bottom:12px">Введите свой PIN</p><input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="8"><div class="err" id="lerr" style="margin:10px 0 0">'+esc(st.err)+'</div><button class="bigbtn" type="submit" style="margin-top:12px">Войти</button></form>'
+    (API?'<form id="loginF"><p style="margin-bottom:12px">Введите свой код доступа</p><input id="pin" type="password" inputmode="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32"><div class="err" id="lerr" style="margin:10px 0 0">'+esc(st.err)+'</div><button class="bigbtn" type="submit" style="margin-top:12px">Войти</button></form>'
         :'<p>Сервер ещё не подключён.</p>')+'</div>';
 }
 
@@ -750,7 +783,9 @@ document.addEventListener("submit",async e=>{
   try{
     if(e.target.id==="loginF"){
       const pin=$("pin").value.trim(); if(!pin) return;
-      try{ const r=await call("login",{pin}); st.token=r.token; st.me=r.me; st.err=""; ls.set("token",r.token); ls.set("me",r.me);
+      try{ const r=await call("login",{pin}); st.token=r.token; st.me=r.me; st.err="";
+        ["cache","ver","seen","out"].forEach(k=>{ try{ localStorage.removeItem("chat-"+k); }catch(_){} });
+        saveChatSession({token:r.token,me:r.me});
         if(r.me.bars.indexOf(st.bar)<0) st.bar=r.me.bars[0]; st.view="chat"; firstSync=true; render(); sync(); }
       catch(err){ st.err=err.message; render(); }
     }
@@ -858,8 +893,11 @@ async function downloadFile(id,name){
 async function logout(silent){
   const tok=st.token, fcm=ls.get("pushTok","");
   if(!silent&&tok&&fcm){ try{ await call("push_unreg",{fcm},4000); }catch(_){} }
+  const current=readChatSession();
+  if(st.token!==tok||current&&current.token!==tok) return;
   st.token=""; st.me=null; st.msgs.clear(); st.ver=0; st.seen={}; st.out=[]; st.books=[]; st.bookLoaded={}; st.atts={}; st.draft={}; st.ed=null;
   ["token","me","cache","ver","seen","push","pushTok","out"].forEach(k=>{ try{ localStorage.removeItem("chat-"+k); }catch(_){} });
+  saveChatSession(null);
   forgetZp();
   try{ await caches.delete("chat-photos"); }catch(_){}
   photoMem.clear();
@@ -875,6 +913,10 @@ function openLink(h){
   try{ history.replaceState(null,"",location.pathname); }catch(_){}
 }
 window.addEventListener("hashchange",()=>openLink(location.hash));
+window.addEventListener("storage",e=>{
+  if(e.key!==SESSION_KEY&&e.key!==null) return;
+  if((readChatSession()?.token||"")!==st.token) location.reload();
+});
 if(navigator.serviceWorker) navigator.serviceWorker.addEventListener("message",e=>{ if(e.data&&e.data.type==="open"){ openLink(e.data.link); sync(); } });
 
 /* ---------- обновление приложения ---------- */
