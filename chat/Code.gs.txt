@@ -95,7 +95,7 @@ function subFolder_(parent, name) {
 }
 
 /* ================= HTTP ================= */
-function doGet(e) { return out_({ ok: true, data: 'Рабочий чат: сервер работает', sectionAccessVersion: 1, staffPasswordVersion: 1 }); }
+function doGet(e) { return out_({ ok: true, data: 'Рабочий чат: сервер работает', sectionAccessVersion: 1, staffPasswordVersion: 1, bookingDateVersion: 1 }); }
 
 function doPost(e) {
   let res;
@@ -766,9 +766,43 @@ function sendTo_(uids, title, body, link) {
 function testPush() { sendTo_(adminIds_(), 'Рабочий чат', 'Тест уведомлений', APP_URL); }
 
 /* ================= бронь столов ================= */
-function bookRows_() { return rows_(sh_('bookings'), B_COLS).filter(function (r) { return r.id !== '' && r.active !== false; }); }
+// Google Sheets may convert ISO date and clock strings to Date objects or serial numbers.
+// Read a canonical date/time before filtering, comparing or sending a booking to clients.
+function bookingDate_(value, display) {
+  const shown = String(display || value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(shown)) return shown;
+  const dm = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/.exec(shown);
+  if (dm) return dm[3] + '-' + ('0' + dm[2]).slice(-2) + '-' + ('0' + dm[1]).slice(-2);
+  if (value instanceof Date && isFinite(value.getTime())) return Utilities.formatDate(value, TZ, 'yyyy-MM-dd');
+  if (typeof value === 'number' && isFinite(value) && value > 0)
+    return new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000).toISOString().slice(0, 10);
+  return '';
+}
+function bookingTime_(value, display) {
+  const shown = String(display || value || '').trim();
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(shown);
+  if (match && +match[1] < 24 && +match[2] < 60)
+    return ('0' + match[1]).slice(-2) + ':' + match[2];
+  if (value instanceof Date && isFinite(value.getTime())) return Utilities.formatDate(value, TZ, 'HH:mm');
+  if (typeof value === 'number' && isFinite(value) && value >= 0 && value < 1) {
+    const minutes = Math.round(value * 1440) % 1440;
+    return ('0' + Math.floor(minutes / 60)).slice(-2) + ':' + ('0' + minutes % 60).slice(-2);
+  }
+  return '';
+}
+function bookRows_() {
+  const sheet = sh_('bookings'), rows = rows_(sheet, B_COLS);
+  if (!rows.length) return [];
+  const displayed = sheet.getRange(2, 3, rows.length, 3).getDisplayValues();
+  return rows.filter(function (r) { return r.id !== '' && r.active !== false; }).map(function (r) {
+    const cells = displayed[r._row - 2];
+    r.date = bookingDate_(r.date, cells[0]);
+    r.time = bookingTime_(r.time, cells[2]);
+    return r;
+  });
+}
 function bookPub_(r) {
-  return { id: +r.id, bar: String(r.bar), date: String(r.date), tbl: String(r.tbl), time: String(r.time), guests: String(r.guests),
+  return { id: +r.id, bar: String(r.bar), date: bookingDate_(r.date), tbl: String(r.tbl), time: bookingTime_(r.time), guests: String(r.guests),
     name: String(r.name), phone: String(r.phone || ''), note: String(r.note || ''), uname: String(r.uname || ''), uid: +r.uid || 0 };
 }
 function bookList_(me, b) {
@@ -782,12 +816,12 @@ function bookSave_(me, x) {
   x = x || {};
   const bar = String(x.bar);
   requireBarSection_(me, bar, 'booking', true);
-  const date = String(x.date || ''), tbl = String(x.tbl || '').trim(), time = String(x.time || '').trim();
+  const date = String(x.date || ''), tbl = String(x.tbl || '').trim(), time = bookingTime_(x.time);
   const name = String(x.name || '').trim().slice(0, 80), guests = String(x.guests || '').trim().slice(0, 10);
   const label = String(x.tlabel || '').trim().slice(0, 40) || tableName_(tbl);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Нет даты');
   if (!tbl) throw new Error('Нет стола');
-  if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('Время в формате 19:30');
+  if (!time) throw new Error('Время в формате 19:30');
   if (!name) throw new Error('Нужно имя гостя');
   if (guests && !/^\d{1,3}$/.test(guests)) throw new Error('Гостей — числом');
   const s = sh_('bookings');
@@ -798,18 +832,24 @@ function bookSave_(me, x) {
     cur = x.id ? all.filter(function (r) { return +r.id === +x.id && String(r.bar) === bar; })[0] : null;
     if (x.id && !cur) throw new Error('Бронь уже снята или изменена — обновите экран');
     if (date < todayIso_() && (!cur || String(cur.date) !== date)) throw new Error('Нельзя бронировать на прошедшую дату');
-    if (all.some(function (r) { return String(r.bar) === bar && String(r.date) === date && String(r.tbl) === tbl && +r.id !== +x.id; }))
+    const sameTable = cur && cur.date === date && String(cur.tbl) === tbl;
+    if (!sameTable && all.some(function (r) { return String(r.bar) === bar && r.date === date && String(r.tbl) === tbl && +r.id !== +x.id; }))
       throw new Error('Этот стол на эту дату уже забронирован');
     const vals = [bar, date, tbl, time, guests, name, String(x.phone || '').trim().slice(0, 30), String(x.note || '').trim().slice(0, 200)];
     if (cur) {
-      s.getRange(cur._row, 2, 1, vals.length).setValues([vals]);
-      res = bookPub_(rows_(s, B_COLS).filter(function (r) { return +r.id === +x.id; })[0]);
+      s.getRange(cur._row, 2, 1, vals.length).setNumberFormat('@').setValues([vals]);
+      res = bookPub_(Object.assign({}, cur, { bar: bar, date: date, tbl: tbl, time: time, guests: guests, name: name, phone: vals[6], note: vals[7] }));
     } else {
       const id = rows_(s, B_COLS).reduce(function (m, r) { return Math.max(m, +r.id || 0); }, 0) + 1;
-      s.appendRow([id].concat(vals).concat([me.id, me.name, new Date(), true]));
+      const row = s.getLastRow() + 1;
+      if (row > s.getMaxRows()) s.insertRowsAfter(s.getMaxRows(), 1);
+      s.getRange(row, 2, 1, vals.length).setNumberFormat('@');
+      const values = [id].concat(vals).concat([me.id, me.name, new Date(), true]);
+      s.getRange(row, 1, 1, values.length).setValues([values]);
       isNew = true;
       res = bookPub_({ id: id, bar: bar, date: date, tbl: tbl, time: time, guests: guests, name: name, phone: vals[6], note: vals[7], uname: me.name, uid: me.id });
     }
+    SpreadsheetApp.flush();
   } finally { lock.releaseLock(); }
   try {
     const d = date.slice(8) + '.' + date.slice(5, 7);
