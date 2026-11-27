@@ -178,7 +178,7 @@ nav .dot{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 <input type="file" id="file2" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple hidden>
 <script>
 "use strict";
-const APP_VERSION = "13";
+const APP_VERSION = "14";
 const CFG = self.CHAT_CFG || {};
 const API = CFG.api;
 const BARS = {"13":"13шка", epo:"ЕпО"};
@@ -605,19 +605,27 @@ async function loadBook(silent){
   if(!st.me||bookLoading[bar]) return; bookLoading[bar]=true;
   const today=isoDay(new Date()), from=addDays(today,-1), to=addDays(today,90);
   const f=st.bday<from?st.bday:from, t=st.bday>to?st.bday:to;
-  try{ const r=await call("book_list",{bar,from:f,to:t}); st.books=st.books.filter(b=>b.bar!==bar).concat(r); st.bookLoaded[bar]=true; }
+  try{ const r=await call("book_list",{bar,from:f,to:t}); st.books=st.books.filter(b=>b.bar!==bar).concat(r); st.bookLoaded[bar]={from:f,to:t}; }
   catch(e){ if(!silent) toast(e.message); }
-  finally{ bookLoading[bar]=false; if(st.view==="book"&&!$("sheet")) renderBook(); }
+  finally{
+    bookLoading[bar]=false;
+    if(st.view==="book"&&!$("sheet")) renderBook();
+    if(st.view==="book"&&st.bar===bar&&(st.bday<f||st.bday>t)) loadBook(true);
+  }
 }
 function dayBooks(){ return st.books.filter(b=>b.bar===st.bar&&b.date===st.bday); }
+function dayBooksLoaded(){
+  const range=st.bookLoaded[st.bar];
+  return !!range&&range.from<=st.bday&&st.bday<=range.to;
+}
 const maxSeats = s=>Math.max(...String(s||"").split(/\D+/).filter(Boolean).map(Number), 0);
 function renderBook(){
   const f=$("feed"); if(!f) return;
   const today=isoDay(new Date()); let chips="";
   for(let i=0;i<21;i++){ const d=addDays(today,i), dt=new Date(d+"T12:00:00"), has=st.books.some(b=>b.bar===st.bar&&b.date===d);
     chips+='<button class="dchip'+(d===st.bday?" on":"")+'" data-day="'+d+'">'+(i===0?"сегодня":i===1?"завтра":WD[dt.getDay()])+'<b>'+dt.getDate()+'</b>'+(has?'<i></i>':'')+'</button>'; }
-  chips+='<label class="dpick" aria-label="Другая дата">📅<input type="date" id="bkdate" min="'+today+'" value="'+st.bday+'"></label>';
-  const dt=new Date(st.bday+"T12:00:00"), loaded=!!st.bookLoaded[st.bar];
+  chips+='<label class="dpick" aria-label="Другая дата">📅<input type="date" id="bkdate" value="'+st.bday+'"></label>';
+  const dt=new Date(st.bday+"T12:00:00"), loaded=dayBooksLoaded();
   const list=dayBooks().sort((a,b)=>a.time.localeCompare(b.time));
   const plan=PLANS[st.bar];
   let h='<div class="page" style="padding-top:2px"><div class="days">'+chips+'</div>'+
@@ -651,11 +659,12 @@ function nearestTable(hall,x,y){
     if(d<bd){ bd=d; best=el; } });
   return best;
 }
-function openBooking(tbl){
-  if(!st.bookLoaded[st.bar]){ toast("Подождите, брони загружаются"); return; }
+function openBooking(tbl,bookingId){
+  if(!dayBooksLoaded()){ toast("Подождите, брони загружаются"); return; }
   closeSheet(true);
   const plan=PLANS[st.bar], t=plan&&plan.tables.find(x=>x.id===tbl);
-  const b=tbl?dayBooks().find(x=>x.tbl===tbl):null;
+  const b=bookingId?dayBooks().find(x=>String(x.id)===String(bookingId)):tbl?dayBooks().find(x=>x.tbl===tbl):null;
+  if(bookingId&&!b){ toast("Бронь изменена — обновите экран"); return; }
   if(!b&&st.bday<isoDay(new Date())){ toast("Прошедшая дата — бронировать нельзя"); return; }
   st.bedit=b?Object.assign({},b):{tbl,time:"",guests:"",name:"",phone:"",note:""};
   const e=st.bedit, dt=new Date(st.bday+"T12:00:00");
@@ -739,7 +748,7 @@ document.addEventListener("click",async e=>{
   if(t.dataset.ch){ if(t.dataset.ch==="more"||t.dataset.ch==="book"||t.dataset.ch==="zp"){ st.view=t.dataset.ch; if(st.view==="book") loadBook(); } else { st.view="chat"; st.ch=t.dataset.ch; ls.set("ch",st.ch); } st.edit=null; render(); return; }
   if(t.dataset.day){ st.bday=t.dataset.day; renderBook(); return; }
   if(t.dataset.tbl){ openBooking(t.dataset.tbl); return; }
-  if(t.dataset.bk){ const b=st.books.find(x=>String(x.id)===t.dataset.bk); if(b) openBooking(b.tbl); return; }
+  if(t.dataset.bk){ const b=st.books.find(x=>String(x.id)===t.dataset.bk); if(b) openBooking(b.tbl,b.id); return; }
   if(t.dataset.uid){ st.edit=Object.assign({},st.users.find(u=>u.id===+t.dataset.uid)); renderUsers(); return; }
   if(t.classList.contains("ph")){ const img=t.querySelector("img"); if(img) viewer(img.src); return; }
   if(t.classList.contains("fl")){ if(t.dataset.fid) downloadFile(t.dataset.fid,t.dataset.fname); return; }
