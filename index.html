@@ -83,6 +83,25 @@ button.cell:active,a.cell:active{background:var(--fill)}
 .task.done .t{text-decoration:line-through;color:var(--muted)}
 .task.skip{background:var(--warn-soft)}
 .task.skip .t{color:var(--ink)}
+.task-photo-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;text-align:left}
+.task-photo-thumb{display:grid;place-items:center;width:108px;max-width:100%;height:76px;background:var(--fill);border-radius:9px;overflow:hidden;color:var(--muted);font-size:12px}
+.task-photo-thumb img{width:100%;height:100%;object-fit:contain}
+.task-photo-hint{display:block;color:var(--muted);font-size:13px;margin-top:6px}
+.task-photo-detail{justify-content:center;padding:8px 0}
+.task-photo-detail .task-photo-thumb{width:112px;height:86px}
+.task-photo-open{border-radius:9px}
+.task-photo-access{text-align:center;padding:4px 0}
+.pult-photo-dialog{width:min(600px,calc(100vw - 24px));max-height:calc(100dvh - 28px);overflow:auto;padding:16px;border:1px solid var(--sep);border-radius:18px;background:var(--cell);color:var(--ink)}
+.pult-photo-dialog::backdrop{background:var(--dim)}
+.photo-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;overflow-wrap:anywhere}
+.photo-dialog-head button{color:var(--link);font-size:26px;flex:none;width:30px;height:30px}
+.photo-view-content{display:grid;gap:10px;text-align:center}
+.photo-view-content img{width:100%;max-height:70dvh;object-fit:contain;border-radius:10px;background:var(--fill)}
+.photo-login{display:grid;gap:10px}
+.photo-login label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
+.photo-login input{width:100%;border:0;border-radius:10px;background:var(--fill);padding:12px;color:var(--ink)}
+.photo-login-error{color:var(--bad);font-size:14px;margin:0}
+.sheet{max-height:calc(100dvh - 16px);overflow:auto}
 .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--fill);color:var(--muted);margin-right:4px}
 .pill.y{background:var(--warn);color:#000}
 .pill.o{background:var(--accent-soft);color:var(--accent)}
@@ -223,6 +242,7 @@ nav.tabs .badge{position:absolute;top:-2px;left:calc(50% + 6px);min-width:18px;h
 <div id="sheetRoot"></div>
 <div class="toast" id="toast" hidden></div>
 
+<script src="task-photos.js"></script>
 <script>
 (function(){
 "use strict";
@@ -268,6 +288,7 @@ const chev='<svg class="chev" viewBox="0 0 9 15" fill="none" stroke="currentColo
 const st={ tab:"dela", busy:0, loading:false, err:null, at:0,
   tasks:null, p13:null, pepo:null, contacts:null,
   ui:{addDay:0,showDays:5,form13:false,formepo:false,formContact:false,search:""}, sheet:null };
+const taskPhotos = new PultTaskPhotos("https://script.google.com/macros/s/AKfycbyBRxBMoRtpEVWQ_awvhETEoqzWeUfmHRZWuCNV0R5nVrCS9bwPNa-y0RzDUjbI9QSJPg/exec",()=>render());
 const PKEY={"13":"p13",epo:"pepo"};
 
 /* ---------- parsing (из ответа скрипта) ---------- */
@@ -330,7 +351,7 @@ async function load(){
   st.loading=true; spin(true); render();
   try{ ingest(await api(null)); }
   catch(e){ st.err=e.message; }
-  finally{ st.loading=false; spin(false); render(); }
+  finally{ st.loading=false; spin(false); render(); void taskPhotos.refresh(); }
 }
 async function act(label,body,optimistic){
   closeSheet();
@@ -398,7 +419,7 @@ function taskCell(t,sub){
   const com=String(t.comment||"").replace(/(;\s*)?(перенос на [\d.]+|не нужно)/gi,"").replace(/^;\s*/,"").trim();
   const subline=[sub,com].filter(Boolean).map(esc).join(" · ");
   const inner='<span class="circle">'+(cls==="done"?icCheck:cls==="skip"?icDash:"")+'</span>'+
-    '<span class="body"><span class="t">'+esc(t.text)+'</span>'+((pills||subline)?'<span class="s">'+pills+subline+'</span>':"")+'</span>';
+    '<span class="body"><span class="t">'+esc(t.text)+'</span>'+((pills||subline)?'<span class="s">'+pills+subline+'</span>':"")+taskPhotos.markup(t.text)+'</span>';
   return '<button class="cell task '+cls+'" data-act="task" data-id="'+esc(t.id)+'"'+(String(t.id).startsWith("tmp")?" disabled":"")+'>'+inner+(cls==="open"?chev:"")+'</button>';
 }
 function renderTasks(){
@@ -547,7 +568,8 @@ function renderSetup(){
     '<div class="cell"><label><span>Адрес скрипта</span><input type="url" id="s-api" placeholder="https://script.google.com/macros/s/…/exec" value="'+esc(API)+'"></label></div>'+
     '<div class="cell"><label><span>Код доступа</span><input type="text" id="s-key" placeholder="bar-…" value="'+esc(KEY)+'" autocapitalize="off" autocorrect="off" spellcheck="false"></label></div></div>'+
     '<div class="foot">Адрес и код выдаются один раз при настройке скрипта в Google Таблице. Хранятся только на этом телефоне.</div>'+
-    '<div class="btnrow">'+(API&&KEY?'<button type="button" class="tbtn" data-act="closesetup">Отмена</button>':"")+'<button type="submit" class="tbtn" style="font-weight:600">Подключить</button></div></form>';
+    '<div class="btnrow">'+(API&&KEY?'<button type="button" class="tbtn" data-act="closesetup">Отмена</button>':"")+'<button type="submit" class="tbtn" style="font-weight:600">Подключить</button></div></form>'+
+    '<div class="group"><div class="cell"><span class="body">Фото из рабочего чата</span><button class="tbtn" data-act="'+(taskPhotos.token?'photo-logout':'photo-login')+'">'+(taskPhotos.token?'Выйти':'Войти')+'</button></div></div>';
 }
 
 /* ---------- action sheet ---------- */
@@ -561,7 +583,7 @@ function renderSheet(){
     const t=findTask(s.id); if(!t){ closeSheet(); return; }
     const d=fromIso(t.date);
     const del=s.confirmDel?'<button class="sbtn del" data-sa="delyes">Точно удалить</button>':'<button class="sbtn" data-sa="del">Удалить</button>';
-    head='<div class="shead"><span class="t">'+(t.status==="done"?"Выполнено · "+dmStr(d):esc(relLabel(d))+", "+dmStr(d))+'</span><span class="m">'+esc(t.text)+'</span></div>';
+    head='<div class="shead"><span class="t">'+(t.status==="done"?"Выполнено · "+dmStr(d):esc(relLabel(d))+", "+dmStr(d))+'</span><span class="m">'+esc(t.text)+'</span>'+taskPhotos.markup(t.text,true)+'</div>';
     if(t.status==="done") btns='<button class="sbtn" data-sa="undo">Снять отметку «выполнено»</button>'+del;
     else if(t.status==="skip") btns=del;
     else { const n=diffDays(d,TODAY), to=n>=1?addDays(d,1):n===0?addDays(TODAY,1):TODAY; s.to=isoOf(to);
@@ -582,11 +604,14 @@ function renderSheet(){
   }
   sheetRoot.innerHTML='<div class="scrim" data-sa="close"><div class="sheet" role="dialog" aria-modal="true"><div class="sgroup">'+head+'<div class="sbtns">'+btns+'</div></div><div class="sgroup"><button class="sbtn cancel" data-sa="close">Отмена</button></div></div></div>';
   const inp=document.getElementById("sheetSum"); if(inp){ inp.focus(); inp.select(); }
+  taskPhotos.observe();
 }
 sheetRoot.addEventListener("click",e=>{
   const b=e.target.closest("[data-sa]"); if(!b) return;
   if(b.classList.contains("scrim")&&e.target!==b) return;
   const a=b.dataset.sa, s=st.sheet; if(!s) return;
+  if(a==="photo-login"){ taskPhotos.openLogin(); return; }
+  if(a==="photo-view"){ void taskPhotos.openViewer(b.dataset.photoId); return; }
   if(a==="close"){ closeSheet(); return; }
   if(s.type==="task"){ const t=findTask(s.id); if(!t) return;
     if(a==="done") markDone(t); else if(a==="undo") markOpen(t); else if(a==="skip") markSkip(t);
@@ -628,6 +653,7 @@ function render(){
   const sl=document.getElementById("syncLbl");
   sl.textContent = setup?"" : st.busy?"сохраняю…" : st.loading?"обновляю…" : st.at?"обновлено "+hhmm(new Date(st.at)) : "";
   if(st.sheet) renderSheet();
+  else taskPhotos.observe();
 }
 
 /* ---------- events ---------- */
@@ -641,6 +667,8 @@ document.querySelector("header.top").addEventListener("click",e=>{ const b=e.tar
 view.addEventListener("click",e=>{
   const b=e.target.closest("[data-act]"); if(!b) return;
   const a=b.dataset.act, id=b.dataset.id, key=b.dataset.key;
+  if(a==="photo-login"){ taskPhotos.openLogin(); return; }
+  if(a==="photo-logout"){ taskPhotos.signOut(); return; }
   if(a==="addday"){ st.ui.addDay=+b.dataset.d; if(st.ui.addDay===2&&!st.ui.pickDate) st.ui.pickDate=isoOf(addDays(TODAY,2)); render(); return; }
   if(a==="addtask"){ addTask(addTarget(),document.getElementById("taskText").value); return; }
   if(a==="moredays"){ st.ui.showDays+=5; render(); return; }
@@ -691,7 +719,7 @@ load();
 setInterval(()=>{ if(document.visibilityState==="visible"&&!st.busy) load(); },60000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ load(); checkUpdate(); } });
 // автообновление: при возврате в приложение сверяем версию на сайте и перезагружаемся, если она новее
-const APP_VERSION="13";
+const APP_VERSION="14";
 async function checkUpdate(){
   try{
     const t=await fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"");
